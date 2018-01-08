@@ -1,8 +1,6 @@
 tasks, scheduling, deps, dags, etc
 ==================================
 
-**STORE EVERYTHING IN AN ENV**
-
 # phases
 1. task def (deps, options w/ default, products)
 2. "options" given values for each task (invocation)
@@ -108,18 +106,30 @@ we need a DAG, obviously. i don't think we should go any deeper.
 1. [execution](#execution) graph has dynamic edge weights (not dynamic edges, though!)
     - want to able to inspect this graph in motion, to display progress and to schedule streaming concurrent execution
 2. want to be able to query and mutate the task dep graph to substitute test tasks, or to override the implementation of some subgraph (e.g. a single task)
-    - **this is VERY important** -- can't require people to go through some dumb kitchen sink interface
+    - **this is VERY important -- can't require people to go through some dumb kitchen sink interface**
 
-## impl
+## graph impl
 
-**lightweight** framework to describe a DAG, query it *(how?)* and mutate it.
+**lightweight** *(don't solve TSP)* framework to describe a DAG *(meaningless expression)*, query it *(how?)* and mutate it *(do we mutate differently than we query?)*.
 
 prior work:
 - `igraph` *(that should be a link)* is confusing and i don't think it was made for anything but graph theoretical computations
 
 # parallel execution framework
-something special needs to be done to schedule everything, and that could and probably should be a separate library.
+something special needs to be done to schedule (and execute, and cache) everything, and that could and probably should be a separate library.
 
 questions:
 - what do we need for this?
-- does we need to write something else? do current offerings work?
+- does we need to write something else? do current offerings exist (in any way)?
+
+progress
+========
+
+*order eternally TBD*
+
+- [ ] define [graphs](#graphs)
+- [ ] define [types](#types)
+- [ ] define [tasks](#tasks) with [options](#options) as above to form *task dep graph*
+- [ ] set and validate options as above to form *[invocation](#invocation) graph*
+- [ ] schedule execution through a *basic* [parallel execution framework](#parallel-execution-framework)
+- [ ] go hard on [scheduling, caching, and concurrent execution](#scheduling-caching-and-concurrent-execution)
