@@ -40,6 +40,10 @@ tasks, scheduling, deps, dags, etc
 - **types don't have a default value, options do**
 - **TYPES SHARED FOR PRODUCTS AND OPTIONS**
     - **the difference between an option and a product is that option values are known BEFORE the execution phase begins**
+- make facility for "container" types?
+    - e.g. lists of values?
+    - maybe **NOT** -- find out if these could/should differ from streams
+        - i think streams might be the answer
 
 have:
 1. a predicate (definitely)
@@ -92,3 +96,30 @@ do (not necessarily in order):
 
 #### concurrent execution
 - may require a separate framework for parallel execution *hint, hint*
+- **NEED** to be able to support streaming parallel execution in the execution graph
+    - can parallelize execution, but missing out on VAST amounts of concurrency if we can't do that same scheduling dynamically with streaming inputs
+        - should still be very easy to integrate into caching/etc
+
+# graphs
+we need a DAG, obviously. i don't think we should go any deeper.
+
+*we probably need more stuff, or maybe less*
+
+1. [execution](#execution) graph has dynamic edge weights (not dynamic edges, though!)
+    - want to able to inspect this graph in motion, to display progress and to schedule streaming concurrent execution
+2. want to be able to query and mutate the task dep graph to substitute test tasks, or to override the implementation of some subgraph (e.g. a single task)
+    - **this is VERY important** -- can't require people to go through some dumb kitchen sink interface
+
+## impl
+
+**lightweight** framework to describe a DAG, query it *(how?)* and mutate it.
+
+prior work:
+- `igraph` *(that should be a link)* is confusing and i don't think it was made for anything but graph theoretical computations
+
+# parallel execution framework
+something special needs to be done to schedule everything, and that could and probably should be a separate library.
+
+questions:
+- what do we need for this?
+- does we need to write something else? do current offerings work?
