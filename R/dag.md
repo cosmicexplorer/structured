@@ -1,7 +1,7 @@
 tasks, scheduling, deps, dags, etc
 ==================================
 
-# phases
+# phases of execution
 1. task def (deps, options w/ default, products)
 2. "options" given values for each task (invocation)
 3. execution
@@ -126,6 +126,8 @@ progress
 ========
 
 *order eternally TBD*
+
+**TODO: this needs an MVP**
 
 - [ ] define [graphs](#graphs)
 - [ ] define [types](#types)
