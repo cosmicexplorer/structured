@@ -2,10 +2,11 @@ tasks, scheduling, deps, dags, etc
 ==================================
 
 # phases of execution
-1. task def (deps, options w/ default, products)
-2. "options" given values for each task (invocation)
+1. task def (deps, parameters w/ default, products)
+2. "parameters" given values for each task (invocation)
 3. execution
     - scheduled """intelligently"""
+        - **GIVE THE PEOPLE CPU/MEM/FS/NETWORK DIALS!!!**
     - decision of where to serialize, where to execute, etc is done **HERE**
 
 ## task def
@@ -17,14 +18,14 @@ tasks, scheduling, deps, dags, etc
 1. name
     - unique in the **task def env**
 2. deps (maybe not)
-    - e.g. a task to download a file could be written as having no *deps*, but a required *option* containing the URLs to download
+    - e.g. a task to download a file could be written as having no *deps*, but a required *parameter* containing the URLs to download
     - **a task dep is just another task**
-        - a task dep is ONLY a task, and CANNOT set any options for the task it depends on
+        - a task dep is ONLY a task, and CANNOT set any parameters for the task it depends on
             - this helps to reduce magic and increase hermeticity
     - declaring a dep on another task is saying: "I know how to use the result of this task" -- the only thing the *current* task can use is the *product* of the task it depends on
     - **each dep must ALREADY be defined in the task def env**
         - this accidentally helps stop cyclical deps in the execution graph as well *i think?*
-3. [options](#options) (definitely)
+3. [parameters](#parameters) (definitely)
     - with defaults (usually)
     - *you could maybe make an operation that has no knobs to tweak, but only for the sake of argument*
 4. products (results)
@@ -35,9 +36,9 @@ tasks, scheduling, deps, dags, etc
 - declared explicitly
 - **NOT defined inline**
 - stored in an env
-- **types don't have a default value, options do**
-- **TYPES SHARED FOR PRODUCTS AND OPTIONS**
-    - **the difference between an option and a product is that option values are known BEFORE the execution phase begins**
+- **types don't have a default value, parameters do**
+- **TYPES SHARED FOR PRODUCTS AND PARAMETERS**
+    - **the difference between an parameter and a product is that parameter values are known BEFORE the execution phase begins**
 - make facility for "container" types?
     - e.g. lists of values?
     - maybe **NOT** -- find out if these could/should differ from streams
@@ -50,32 +51,32 @@ have:
     - we're not trying to make a type system here
     - all we do is apply the predicate from the parent type, then the predicate for the current type
 
-### options
-- options have explicitly declared [types](#types), and maybe a default
+### parameters
+- parameters have explicitly declared [types](#types), and maybe a default
     - **the default is a value, not a closure**
-- unlike pants, we don't do nested options
+- unlike pants, we don't do nested parameters
     - they're complex and annoying to fingerprint
     - we don't want to encourage nesting tasks inside subsystems
-        - prefer to have a single canonical task, and if variations are necessary, make different tasks, or make that variance into options
-        - also, [products](#products) should always be the same type, NOT dependent on the options or dependencies!
+        - prefer to have a single canonical task, and if variations are necessary, make different tasks, or make that variance into parameters
+        - also, [products](#products) should always be the same type, NOT dependent on the parameters or dependencies!
 
 have (already described elsewhere, kept here anyway):
-1. name (unique within task's set of registered options)
+1. name (unique within task's set of registered parameters)
 2. type
 3. default (maybe)
 
 ### products
-**the difference between an option and a product is that option values are known BEFORE the execution phase begins**
+**the difference between an parameter and a product is that parameter values are known BEFORE the execution phase begins**
 
 have:
 1. type
 
 ## invocation
-- this is actually pretty straightforward, since we define options and (maybe) default values in [the task definitions](#task-def)
+- this is actually pretty straightforward, since we define parameters and (maybe) default values in [the task definitions](#task-def)
 
 do (not necessarily in order):
-1. check if required options are provided (error out if not)
-2. check if all option values have the correct [types](#option-types)
+1. check if required parameters are provided (error out if not)
+2. check if all parameter values have the correct [types](#parameter-types)
 
 ## execution
 1. schedule
@@ -88,7 +89,7 @@ do (not necessarily in order):
 
 ### scheduling, caching, and concurrent execution
 - scheduling, caching, and concurrent execution are intimately related
-- caching is based on fingerprinting task [option values](#options) and [product values](#products)
+- caching is based on fingerprinting task [parameter values](#parameters) and [product values](#products)
 - can be as complex as desired
 - if done right, can be *extremely* cool
 
@@ -118,6 +119,8 @@ prior work:
 # parallel execution framework
 something special needs to be done to schedule (and execute, and cache) everything, and that could and probably should be a separate library.
 
+- keep everything (incl. scheduling) local / at the nodes!
+
 questions:
 - what do we need for this?
 - does we need to write something else? do current offerings exist (in any way)?
@@ -125,13 +128,12 @@ questions:
 progress
 ========
 
-*order eternally TBD*
-
 **TODO: this needs an MVP**
 
 - [ ] define [graphs](#graphs)
+    - [ ] start with really simple class in [dag.R](dag.R)
 - [ ] define [types](#types)
-- [ ] define [tasks](#tasks) with [options](#options) as above to form *task dep graph*
-- [ ] set and validate options as above to form *[invocation](#invocation) graph*
+- [ ] define [tasks](#tasks) with [parameters](#parameters) as above to form *task dep graph*
+- [ ] set and validate parameters as above to form *[invocation](#invocation) graph*
 - [ ] schedule execution through a *basic* [parallel execution framework](#parallel-execution-framework)
 - [ ] go hard on [scheduling, caching, and concurrent execution](#scheduling-caching-and-concurrent-execution)
