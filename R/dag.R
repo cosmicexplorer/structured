@@ -31,7 +31,7 @@ isValidTypeName <- function(x) {
 
 setClass('TypeName', slots=c(name='character'))
 setMethod('initialize', 'TypeName', function(.Object, ...) {
-    .Object <- callNextMethod()
+    .Object <- callNextMethod(.Object, ...)
     stopifnot(isValidTypeName(.Object@name))
     .Object
 })
@@ -53,15 +53,15 @@ checkUniquelyNamedList <- function(x) {
     stopifnot(is.list(x))
     stopifnot(length(x) > 0)
     listNames <- names(x)
-    stopifnot(is.null(listNames))
-    stopifnot(any(listNames) == '')
-    stopifnot(anyDuplicated(listNames))
+    stopifnot(!is.null(listNames))
+    stopifnot(!any(listNames == ''))
+    stopifnot(!anyDuplicated(listNames))
     x
 }
 
 setClass('NamedArgumentList', slots=c(args='list'))
 setMethod('initialize', 'NamedArgumentList', function(.Object, ...) {
-    .Object <- callNextMethod()
+    .Object <- callNextMethod(.Object, ...)
     .Object@args <- checkUniquelyNamedList(.Object@args)
     .Object
 })
@@ -125,7 +125,7 @@ setMethod('evaluate', signature(
     fun <- typedCall@fun
     sig <- fun@signature
     argValues <- checkTypedArgs(sig@inputs, typedCall@argValues)
-    result <- do.call(fun@f, argValues, envir=env)
+    result <- do.call(fun@f, argValues@args, envir=env)
     stopifnot(isType(sig@output, result))
     result
 })
@@ -140,8 +140,9 @@ setMethod('asCheckedClosure', signature(
     sig <- typedFunction@signature
     def <- typedFunction@f
     retFun <- function(...) {
+        args <- match.call() %>% as.list %>% .[-1]
         pf <- parent.frame()
-        argValues <- new('ValueArgumentList', list(...))
+        argValues <- new('ValueArgumentList', args=args)
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
         evaluate(call, pf)
     }
