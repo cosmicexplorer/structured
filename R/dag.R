@@ -134,13 +134,25 @@ setGeneric('asCheckedClosure', function(typedFunction) {
     standardGeneric('asCheckedClosure')
 })
 
+getArgumentListOfCall <- function(arg) {
+    stopifnot(is.call(arg))
+    arg %>% as.list %>% .[-1]
+}
+
+## TODO: make the 'print' of this look prettier -- show the real function body
+## somehow, along with type-checking information. use separate class?
+## yes! make it say:
+## function(a: 'numeric', b: 'character') -> 'character' {
+##   # (body of real function goes here)
+## }
+
 setMethod('asCheckedClosure', signature(
     typedFunction='TypedFunction'
 ), function(typedFunction) {
     sig <- typedFunction@signature
     def <- typedFunction@f
     retFun <- function(...) {
-        args <- match.call() %>% as.list %>% .[-1]
+        args <- match.call() %>% getArgumentListOfCall()
         pf <- parent.frame()
         argValues <- new('ValueArgumentList', args=args)
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
