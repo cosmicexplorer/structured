@@ -14,13 +14,13 @@
 
 
 #' @import magrittr
+#' @import pryr
 
 
 
 ### parameters and products (ins and outs and ins)
 ### these use the SAME TYPES!!!!
-setClass('Value', representation())
-
+## ???
 
 
 isValidTypeName <- function(x) {
@@ -32,7 +32,9 @@ isValidTypeName <- function(x) {
 setClass('TypeName', slots=c(name='character'))
 setMethod('initialize', 'TypeName', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
-    stopifnot(isValidTypeName(.Object@name))
+    if (!isValidTypeName(.Object@name)) {
+        stop(sprintf("invalid type name: '%s'", .Object@name))
+    }
     .Object
 })
 
@@ -50,12 +52,18 @@ setMethod('isType', signature(
 ### some useful macros to define tasks
 ## check if list, not empty, all named, no repeated names
 checkUniquelyNamedList <- function(x) {
-    stopifnot(is.list(x))
-    stopifnot(length(x) > 0)
+    if (!is.list(x) ||
+        length(x) <= 0) {
+        stop(sprintf("argument should be a non-empty list: '%s'", x))
+    }
     listNames <- names(x)
-    stopifnot(!is.null(listNames))
-    stopifnot(!any(listNames == ''))
-    stopifnot(!anyDuplicated(listNames))
+    if (is.null(listNames) ||
+        any(listNames == '') ||
+        anyDuplicated(listNames)) {
+        stop(sprintf(
+            "list must have unique, nonempty names for each element: '%s'",
+            x))
+    }
     x
 }
 
@@ -77,6 +85,27 @@ setMethod('initialize', 'TypedArgumentList', function(.Object, ...) {
     .Object
 })
 
+makeNamedNoValueAlist <- function(names) {
+    if (!is.character(names) ||
+        length(names) <= 0) {
+        stop(sprintf("argument should be a non-empty character vector: '%s'",
+                     names))
+    }
+    rep(list(bquote()), length(names)) %>%
+        setNames(names) %>%
+        as.pairlist()
+}
+
+setGeneric('toAlist', function(x) {
+    standardGeneric('toAlist')
+})
+
+setMethod('toAlist', signature(
+    x='TypedArgumentList'
+), function (x) {
+    x@args %>% names %>% makeNamedNoValueAlist
+})
+
 setGeneric('checkTypedArgs', function(argTypes, argValues) {
     standardGeneric('checkTypedArgs')
 })
@@ -88,17 +117,24 @@ setMethod('checkTypedArgs', signature(
 ), function(argTypes, argValues) {
     declaredNames <- names(argTypes@args)
     givenNames <- names(argValues@args)
-    stopifnot(setequal(declaredNames, givenNames))
+    if (!setequal(declaredNames, givenNames)) {
+        stop(sprintf(
+            "declared argument: '%s' differ from invocation arguments: '%s'",
+            declaredNames, givenNames))
+    }
     for (name in declaredNames) {
         type <- argTypes@args[[name]]
         value <- argValues@args[[name]]
-        stopifnot(isType(type, value))
+        if (!isType(type, value)) {
+            stop(sprintf("type: '%s' check failed for argument: '%s'",
+                         type@name, value))
+        }
     }
     argValues
 })
 
-### define types by strings (?) because then they don't have to exist until
-### "runtime"
+setClass('FunctionBody', slots=c(bracedBody='{'))
+
 setClass('Signature', slots=c(
     inputs='TypedArgumentList',
     output='TypeName'
@@ -108,6 +144,23 @@ setClass('TypedFunction', slots=c(
     signature='Signature',
     f='function'
 ))
+
+setGeneric('makeTypedFunction', function(signature, body) {
+    standardGeneric('makeTypedFunction')
+})
+
+setMethod('makeTypedFunction', signature(
+    signature='Signature',
+    body='FunctionBody'
+), function(signature, body) {
+    inputs <- signature@inputs
+    argNames <- names(inputs@args)
+    outType <- signature@output
+    new('TypedFunction',
+        signature=signature,
+        f=pryr::make_function(args=toAlist(inputs),
+                              body=body@bracedBody))
+})
 
 setClass('TypedCall', slots=c(
     fun='TypedFunction',
@@ -126,18 +179,24 @@ setMethod('evaluate', signature(
     sig <- fun@signature
     argValues <- checkTypedArgs(sig@inputs, typedCall@argValues)
     result <- do.call(fun@f, argValues@args, envir=env)
-    stopifnot(isType(sig@output, result))
+    output <- sig@output
+    if (!isType(output, result)) {
+        stop(sprintf("type: '%s' check failed for result: '%s'",
+                     output@name, result))
+    }
     result
 })
+
+getArgumentListOfCall <- function(arg) {
+    if (!is.call(arg)) {
+        stop(sprintf("argument: '%s' must be a call", arg))
+    }
+    arg %>% as.list %>% .[-1]
+}
 
 setGeneric('asCheckedClosure', function(typedFunction) {
     standardGeneric('asCheckedClosure')
 })
-
-getArgumentListOfCall <- function(arg) {
-    stopifnot(is.call(arg))
-    arg %>% as.list %>% .[-1]
-}
 
 ## TODO: make the 'print' of this look prettier -- show the real function body
 ## somehow, along with type-checking information. use separate class?
@@ -145,26 +204,73 @@ getArgumentListOfCall <- function(arg) {
 ## function(a: 'numeric', b: 'character') -> 'character' {
 ##   # (body of real function goes here)
 ## }
+## also make sure to expand any <S4 object of class "TypedFunction"> etc
 
 setMethod('asCheckedClosure', signature(
     typedFunction='TypedFunction'
 ), function(typedFunction) {
     sig <- typedFunction@signature
-    def <- typedFunction@f
-    retFun <- function(...) {
-        args <- match.call() %>% getArgumentListOfCall()
-        pf <- parent.frame()
-        argValues <- new('ValueArgumentList', args=args)
-        call <- new('TypedCall', fun=typedFunction, argValues=argValues)
-        evaluate(call, pf)
-    }
-    argNames <- sig@inputs@args %>% names
-    formals(retFun) <- rep(list(bquote()), length(argNames)) %>%
-        setNames(argNames) %>%
-        as.pairlist
-    retFun
+    body <- body(typedFunction@f)
+    inputs <- sig@inputs
+    argNames <- names(inputs@args)
+    pryr::make_function(
+        args=toAlist(inputs),
+        body=bquote({
+            evaluate(
+                new('TypedCall',
+                    fun=.(typedFunction),
+                    argValues=new('ValueArgumentList',
+                                  args=getArgumentListOfCall(match.call()))),
+                environment())
+        }))
 })
 
+
+
+### wrappers, operators, and macros
+params <- function(...) {
+    new('TypedArgumentList', args=list(...))
+}
+
+type <- function(name) {
+    new('TypeName', name=name)
+}
+
+setGeneric('%->%', function(lhs, rhs) {
+    standardGeneric('%->%')
+})
+
+setMethod('%->%', signature(
+    lhs='TypedArgumentList',
+    rhs='TypeName'
+), function(lhs, rhs) {
+    new('Signature', inputs=lhs, output=rhs)
+})
+
+setMethod('%->%', signature(
+    lhs='TypedArgumentList',
+    rhs='character'
+), function(lhs, rhs) {
+    new('Signature', inputs=lhs, output=new('TypeName', name=rhs))
+})
+
+setGeneric('%:%', function(lhs, rhs) {
+    standardGeneric('%:%')
+})
+
+setMethod('%:%', signature(
+    lhs='Signature',
+    rhs='{'
+), function(lhs, rhs) {
+    makeTypedFunction(lhs, new('FunctionBody', bracedBody=rhs))
+})
+
+setMethod('%:%', signature(
+    lhs='Signature',
+    rhs='function'
+), function(lhs, rhs) {
+    new('TypedFunction', signature=lhs, f=rhs)
+})
 
 
 ### tasks
