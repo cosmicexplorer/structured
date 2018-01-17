@@ -213,17 +213,17 @@ setMethod('asCheckedClosure', signature(
     body <- body(typedFunction@f)
     inputs <- sig@inputs
     argNames <- names(inputs@args)
-    pryr::make_function(
-        args=toAlist(inputs),
-        body=bquote({
-            evaluate(
-                new('TypedCall',
-                    fun=.(typedFunction),
-                    argValues=new('ValueArgumentList',
-                                  args=getArgumentListOfCall(match.call()))),
-                environment())
-        }))
+    retFun <- function(...) {
+        args <- getArgumentListOfCall(match.call())
+        argValues <- new('ValueArgumentList', args=args)
+        call <- new('TypedCall', fun=typedFunction, argValues=argValues)
+        evaluate(call, environment())
+    }
+    formals(retFun) <- toAlist(inputs)
+    retFun
 })
+
+
 
 
 
