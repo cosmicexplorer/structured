@@ -210,7 +210,6 @@ setMethod('asCheckedClosure', signature(
     typedFunction='TypedFunction'
 ), function(typedFunction) {
     sig <- typedFunction@signature
-    body <- body(typedFunction@f)
     inputs <- sig@inputs
     argNames <- names(inputs@args)
     retFun <- function(...) {
@@ -224,8 +223,6 @@ setMethod('asCheckedClosure', signature(
 })
 
 
-
-
 
 ### wrappers, operators, and macros
 params <- function(...) {
@@ -234,6 +231,10 @@ params <- function(...) {
 
 type <- function(name) {
     new('TypeName', name=name)
+}
+
+values <- function(...) {
+    new('ValueArgumentList', args=list(...))
 }
 
 setGeneric('%->%', function(lhs, rhs) {
@@ -272,6 +273,19 @@ setMethod('%:%', signature(
     new('TypedFunction', signature=lhs, f=rhs)
 })
 
+setGeneric('%=>%', function(lhs, rhs) {
+    standardGeneric('%=>%')
+})
+
+setMethod('%=>%', signature(
+    lhs='ValueArgumentList',
+    rhs='TypedFunction'
+), function(lhs, rhs) {
+    call <- new('TypedCall', fun=rhs, argValues=lhs)
+    evaluate(call, parent.frame())
+})
+
+
 
-### tasks
+### tasks (/ scheduling?)
 ## setClass('Task', slots=c())
