@@ -159,8 +159,8 @@ setMethod('initialize', 'OrderedBindings', function(.Object, nameSet, innerEnv, 
     envNames <- names(innerEnv)
     remainingNames <- setdiff(nameSet@names, envNames)
     stopCollectingStrings(
-        fmt=paste("the names in the NameSet are not all in the environment.",
-                  "missing: %s"),
+        outerFmt=paste("some names in the NameSet are not in the environment.",
+                       "missing: %s"),
         strs=remainingNames)
     .Object@nameSet <- nameSet
     .Object@innerEnv <- innerEnv
@@ -222,6 +222,15 @@ setAs(from='UniquelyNamedList', to='OrderedBindings', function(from) {
         new('OrderedBindings', nameSet=., innerEnv=listEnv)
 })
 
+setAs(from='OrderedBindings', to='UniquelyNamedList', function(from) {
+    orderedNames <- from %>% .@nameSet %>% .@names
+    lapply(orderedNames, function(name) {
+        from %>% getEnv(name) %>% .@value
+    }) %>%
+        setNames(nm=orderedNames) %>%
+        new('UniquelyNamedList', args=.)
+})
+
 setGeneric('getEnv', function(fromEnv, name) {
     standardGeneric('getEnv')
 }, valueClass='NamedValue')
@@ -256,9 +265,7 @@ setMethod('namedIterate', signature(
 ), function(env, visitor) {
     envNames <- env %>% .@nameSet %>% .@names
     namedPairs <- lapply(envNames, function(name) {
-        getEnv(env, name) %>%
-            .@value %>%
-            new('NamedValue', name=name, value=.)
+        getEnv(env, name)
     })
     namedPairs %>% lapply(visitor)
 })
@@ -280,7 +287,7 @@ setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
         }
     }) %>% unlistFilter
     stopCollectingStrings(
-        fmt=paste(
+        outerFmt=paste(
             "entries in TypeRequirements should all be",
             "instances of the Type class. invalid entries: %s"),
         strs=nonTypeEntryNames)
@@ -298,7 +305,7 @@ setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
         }
     }) %>% unlistFilter
     stopCollectingStrings(
-        fmt=paste(
+        outerFmt=paste(
             "entries in TypedEnvironment should all be",
             "(instances of) subclasses of TypedPromise.",
             "invalid entries: %s"),
@@ -364,12 +371,10 @@ setMethod('makeSignature', signature(
     lhs='TypeRequirements',
     rhs='character'
 ), function(lhs, rhs) {
-    new('FunctionSignature', inputs=lhs, output=new('Type', name=rhs))
+    forType <- new('Type', name=rhs)
+    makeSignature(lhs, forType)
 })
 
-
-## TODO: have some way to wrap errors in the TypedFunction class (i.e. specify
-## recognized errors for use in a tryCatch)
 setClass('TypedFunction', slots=c(
     signature='FunctionSignature',
     f='function'
@@ -418,33 +423,44 @@ setMethod('initialize', 'TypedCall', function(.Object, fun, argValues, ...) {
     .Object
 })
 
-setGeneric('evaluate', function(typedCall, inEnv) {
-    standardGeneric('evaluate')
+setGeneric('evaluateNow', function(typedCall, inEnv) {
+    standardGeneric('evaluateNow')
 })
 
-setMethod('evaluate', signature(
-    typedCall='TypedCall',
-    inEnv='missing'
-), function(typedCall) {
-    evaluate(typedCall, environment())
-})
-
-setMethod('evaluate', signature(
+setMethod('evaluateNow', signature(
     typedCall='TypedCall',
     inEnv='environment'
 ), function(typedCall, inEnv) {
     fun <- typedCall@fun
     sig <- fun@signature
-    argsNamedList <- typedCall@argValues %>%
-        .@innerEnv %>%
-        as.list %>%
-        lapply(function(x) {
-            stopifnot(is(x, 'TypedLiteral'))
-            x@value
-        })
+    argValues <- typedCall@argValues
+    nonLiteralArgs <- argValues %>% namedIterate(function(pair) {
+        if(is(pair@value, 'TypedLiteral')) {
+            NULL
+        } else {
+            pair@name
+        }
+    }) %>% unlistFilter
+    stopCollectingStrings(
+        outerFmt=paste("for evaluateNow, all arguments provided to TypedCall",
+                       "should be instances of TypedLiteral.",
+                       "non-literal arguments were: %s"),
+        strs=nonLiteralArgs
+    )
+    argsNamedList <- argValues %>%
+        as('UniquelyNamedList') %>%
+        .@args %>%
+        lapply(function(x) { x@value })
     result <- do.call(fun@f, argsNamedList, envir=inEnv)
     output <- sig@output
     checkType(sig@output, result)
+})
+
+setMethod('evaluateNow', signature(
+    typedCall='TypedCall',
+    inEnv='missing'
+), function(typedCall) {
+    evaluateNow(typedCall, environment())
 })
 
 makeEmptyAlistFromNames <- function(names) {
@@ -499,17 +515,15 @@ setMethod('asCheckedClosure', signature(
     sig <- typedFunction@signature
     inputs <- sig@inputs
     retFun <- function(...) {
-        uniqNameArgs <- match.call() %>%
+        argValues <- match.call() %>%
             getArgumentListOfCall %>%
             lapply(function(x) { new('TypedLiteral', value=x) }) %>%
-            new('UniquelyNamedList', args=.)
-        argValues <- uniqNameArgs@args %>%
-            names %>%
-            new('NameSet', names=.) %>%
-            new('TypedEnvironment',
-                nameSet=., innerEnv=as(uniqNameArgs, 'environment'))
+            new('UniquelyNamedList', args=.) %>%
+            as('OrderedBindings') %>% {
+                new('TypedEnvironment', nameSet=.@nameSet, innerEnv=.@innerEnv)
+            }
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
-        evaluate(call)
+        evaluateNow(call)
     }
     formals(retFun) <- toEmptyAlist(inputs)
     retFun
