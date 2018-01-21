@@ -268,6 +268,24 @@ setClass('Signature', slots=c(
     output='Type'
 ))
 
+setGeneric('makeSignature', function(lhs, rhs) {
+    standardGeneric('makeSignature')
+}, valueClass='Signature')
+
+setMethod('makeSignature', signature(
+    lhs='TypeRequirements',
+    rhs='Type'
+), function(lhs, rhs) {
+    new('Signature', inputs=lhs, output=rhs)
+})
+
+setMethod('makeSignature', signature(
+    lhs='TypeRequirements',
+    rhs='character'
+), function(lhs, rhs) {
+    new('Signature', inputs=lhs, output=new('Type', name=rhs))
+})
+
 ## TODO: have some way to wrap errors in the TypedFunction class (i.e. specify
 ## recognized errors for use in a tryCatch)
 setClass('TypedFunction', slots=c(
@@ -288,6 +306,20 @@ setMethod('makeTypedFunction', signature(
         signature=signature,
         f=pryr::make_function(args=toEmptyAlist(inputs),
                               body=body@bracedBody))
+})
+
+setMethod('makeTypedFunction', signature(
+    signature='Signature',
+    body='function'
+), function(signature, body) {
+    new('TypedFunction', signature=signature, body=body)
+})
+
+setMethod('makeTypedFunction', signature(
+    signature='Signature',
+    body='{'
+), function(signature, body) {
+    makeTypedFunction(signature, new('FunctionBody', bracedBody=body))
 })
 
 setClass('TypedCall', contains='TypedPromise', slots=c(
@@ -443,53 +475,23 @@ body <- function(bracedExpr) {
     substitute(bracedExpr)
 }
 
-setGeneric('%->%', function(lhs, rhs) {
-    standardGeneric('%->%')
-}, valueClass='Signature')
+`%->%` <- function(lhs, rhs) {
+    makeSignature(lhs, rhs)
+}
 
-setMethod('%->%', signature(
-    lhs='TypeRequirements',
-    rhs='Type'
-), function(lhs, rhs) {
-    new('Signature', inputs=lhs, output=rhs)
-})
+`%:%` <- function(lhs, rhs) {
+    rhsSub <- substitute(rhs)
+    ## allow bare curly braces to be interpreted as function bodies
+    if (is(rhsSub, '{')) {
+        makeTypedFunction(lhs, rhsSub)
+    } else {
+        makeTypedFunction(lhs, rhs)
+    }
+}
 
-setMethod('%->%', signature(
-    lhs='TypeRequirements',
-    rhs='character'
-), function(lhs, rhs) {
-    new('Signature', inputs=lhs, output=new('Type', name=rhs))
-})
-
-setGeneric('%:%', function(lhs, rhs) {
-    standardGeneric('%:%')
-}, valueClass='TypedFunction')
-
-setMethod('%:%', signature(
-    lhs='Signature',
-    rhs='{'
-), function(lhs, rhs) {
-    makeTypedFunction(lhs, new('FunctionBody', bracedBody=rhs))
-})
-
-setMethod('%:%', signature(
-    lhs='Signature',
-    rhs='function'
-), function(lhs, rhs) {
-    new('TypedFunction', signature=lhs, f=rhs)
-})
-
-setGeneric('%=>%', function(lhs, rhs) {
-    standardGeneric('%=>%')
-}, valueClass='TypedCall')
-
-setMethod('%=>%', signature(
-    lhs='TypedEnvironment',
-    rhs='TypedFunction'
-), function(lhs, rhs) {
+`%=>%` <- function(lhs, rhs) {
     new('TypedCall', fun=rhs, argValues=lhs)
-})
-
+}
 
 
 ### tasks (/ scheduling?)
