@@ -49,6 +49,14 @@ setMethod('isType', signature(
     is(object, type@name)
 })
 
+checkType <- function (type, object) {
+    if (!isType(type, object)) {
+        stop(sprintf("type: '%s' check failed for result: '%s'",
+                     type@name, object))
+    }
+    object
+}
+
 setGeneric('extendsType', function(super, sub) {
     standardGeneric('extendsType')
 }, valueClass='logical')
@@ -71,7 +79,48 @@ setMethod('initialize', 'TypedLiteral', function(.Object, value, ...) {
     .Object
 })
 
-## setClass('TypedOptional', contains='TypedPromise', slots=c(value='ANY'))
+setClass('TypedOption', contains='TypedPromise', slots=c(
+    hasValue='logical',
+    value='ANY'
+))
+setMethod('initialize', 'TypedOption', function(.Object, hasValue, value, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    if (!hasValue && !is.null(value)) {
+        stop(sprintf(paste(
+            "a TypedOption with hasValue = FALSE must have value = NULL,",
+            "but its value was '%s'"),
+            value))
+    }
+    .Object@hasValue <- hasValue
+    .Object@value <- value
+    .Object
+})
+
+setGeneric('makeOption', function(value, type) {
+    standardGeneric('makeOption')
+}, valueClass='TypedOption')
+
+setMethod('makeOption', signature(
+    value='ANY',
+    type='missing'
+), function(value) {
+    value %>%
+        class %>%
+        new('Type', name=.) %>%
+        makeOption(value, type=.)
+})
+
+setMethod('makeOption', signature(
+    value='ANY',
+    type='Type'
+), function(value, type) {
+    if (is.null(value)) {
+        new('TypedOption', type=type, hasValue=FALSE, value=NULL)
+    } else {
+        value <- checkType(type, value)
+        new('TypedOption', type=type, hasValue=TRUE, value=value)
+    }
+})
 
 setClass('NameSet', slots=c(names='character'))
 setMethod('initialize', 'NameSet', function(.Object, ...) {
@@ -88,6 +137,20 @@ setMethod('initialize', 'NameSet', function(.Object, ...) {
     .Object
 })
 
+stopCollectingStrings <- function(fmt, strs, ..., collapse=", ") {
+    if (is.null(strs)) {
+        NULL
+    } else if (!is.character(strs)) {
+        stop(sprintf("the argument 'strs' should be a character vector: '%s'",
+                     strs))
+    } else if (length(strs) > 0) {
+        pasted <- paste0(strs, collapse=collapse)
+        stop(sprintf(fmt=fmt, pasted, ...))
+    } else {
+        strs
+    }
+}
+
 setClass('Environment', slots=c(
     nameSet='NameSet',
     innerEnv='environment'))
@@ -95,13 +158,11 @@ setMethod('initialize', 'Environment', function(.Object, nameSet, innerEnv, ...)
     .Object <- callNextMethod(.Object, ...)
     envNames <- names(innerEnv)
     remainingNames <- setdiff(nameSet@names, envNames)
-    if (length(remainingNames) > 0) {
-        stop(sprintf(paste(
-            "the names in the NameSet: [%s]",
-            "are not all in the environment: '%s'"),
-            paste0(nameSet@names, collapse=", "),
-            innerEnv))
-    }
+    stopCollectingStrings(
+        fmt=paste(
+            "the names in the NameSet are not all in the environment.",
+            "missing: [%s]"),
+        strs=remainingNames)
     .Object@nameSet <- nameSet
     .Object@innerEnv <- innerEnv
     .Object
@@ -196,12 +257,11 @@ setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
             pair@name
         }
     }) %>% unlistFilter
-    if (length(nonTypeEntryNames) > 0) {
-        stop(sprintf(paste(
+    stopCollectingStrings(
+        fmt=paste(
             "entries in TypeRequirements should all be instances of Type: ",
             "invalid entries [%s]"),
-            paste0(nonTypeEntryNames, collapse=',')))
-    }
+        strs=nonTypeEntryNames)
     .Object
 })
 
@@ -215,13 +275,12 @@ setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
             pair@name
         }
     }) %>% unlistFilter
-    if (length(untypedEntryNames) > 0) {
-        stop(sprintf(paste(
+    stopCollectingStrings(
+        fmt=paste(
             "entries in TypedEnvironment should all be",
             "(instances of) subclasses of TypedPromise: ",
             "invalid entries [%s]"),
-            paste0(untypedEntryNames, collapse=',')))
-    }
+        strs=untypedEntryNames)
     .Object
 })
 
@@ -253,43 +312,43 @@ setMethod('checkTypedArgs', signature(
                     name, promiseType@name, declaredType@name)
         }
     }) %>% unlistFilter
-    if (length(wrongTypedEntryNames) > 0) {
-        stop(paste("errors in type checking arguments:",
-                   paste0(wrongTypedEntryNames, collapse="\n"),
-                   sep="\n"))
-    }
+    stopCollectingStrings(fmt="errors in type checking arguments:\n%s",
+                          strs=wrongTypedEntryNames,
+                          collapse="\n")
     argPromises
 })
 
 setClass('FunctionBody', slots=c(bracedBody='{'))
 
-setClass('Signature', slots=c(
+setClass('PureSignature', slots=c(
     inputs='TypeRequirements',
     output='Type'
 ))
 
-setGeneric('makeSignature', function(lhs, rhs) {
-    standardGeneric('makeSignature')
-}, valueClass='Signature')
+setGeneric('makePureSignature', function(lhs, rhs) {
+    standardGeneric('makePureSignature')
+}, valueClass='PureSignature')
 
-setMethod('makeSignature', signature(
+setMethod('makePureSignature', signature(
     lhs='TypeRequirements',
     rhs='Type'
 ), function(lhs, rhs) {
-    new('Signature', inputs=lhs, output=rhs)
+    new('PureSignature', inputs=lhs, output=rhs)
 })
 
-setMethod('makeSignature', signature(
+setMethod('makePureSignature', signature(
     lhs='TypeRequirements',
     rhs='character'
 ), function(lhs, rhs) {
-    new('Signature', inputs=lhs, output=new('Type', name=rhs))
+    new('PureSignature', inputs=lhs, output=new('Type', name=rhs))
 })
+
+## setClass('EffectSignature', contains='PureSignature', slots=c())
 
 ## TODO: have some way to wrap errors in the TypedFunction class (i.e. specify
 ## recognized errors for use in a tryCatch)
 setClass('TypedFunction', slots=c(
-    signature='Signature',
+    signature='PureSignature',
     f='function'
 ))
 
@@ -298,7 +357,7 @@ setGeneric('makeTypedFunction', function(signature, body) {
 }, valueClass='TypedFunction')
 
 setMethod('makeTypedFunction', signature(
-    signature='Signature',
+    signature='PureSignature',
     body='FunctionBody'
 ), function(signature, body) {
     inputs <- signature@inputs
@@ -309,14 +368,14 @@ setMethod('makeTypedFunction', signature(
 })
 
 setMethod('makeTypedFunction', signature(
-    signature='Signature',
+    signature='PureSignature',
     body='function'
 ), function(signature, body) {
     new('TypedFunction', signature=signature, body=body)
 })
 
 setMethod('makeTypedFunction', signature(
-    signature='Signature',
+    signature='PureSignature',
     body='{'
 ), function(signature, body) {
     makeTypedFunction(signature, new('FunctionBody', bracedBody=body))
@@ -342,6 +401,13 @@ setGeneric('evaluate', function(typedCall, inEnv) {
 
 setMethod('evaluate', signature(
     typedCall='TypedCall',
+    inEnv='missing'
+), function(typedCall) {
+    evaluate(typedCall, environment())
+})
+
+setMethod('evaluate', signature(
+    typedCall='TypedCall',
     inEnv='environment'
 ), function(typedCall, inEnv) {
     fun <- typedCall@fun
@@ -355,11 +421,7 @@ setMethod('evaluate', signature(
         })
     result <- do.call(fun@f, argsNamedList, envir=inEnv)
     output <- sig@output
-    if (!isType(output, result)) {
-        stop(sprintf("type: '%s' check failed for result: '%s'",
-                     output@name, result))
-    }
-    result
+    checkType(sig@output, result)
 })
 
 makeEmptyAlistFromNames <- function(names) {
@@ -482,7 +544,7 @@ body <- function(bracedExpr) {
 }
 
 `%->%` <- function(lhs, rhs) {
-    makeSignature(lhs, rhs)
+    makePureSignature(lhs, rhs)
 }
 
 `%:%` <- function(lhs, rhs) {
