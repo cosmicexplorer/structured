@@ -137,31 +137,30 @@ setMethod('initialize', 'NameSet', function(.Object, ...) {
     .Object
 })
 
-stopCollectingStrings <- function(fmt, strs, ..., collapse=", ") {
+stopCollectingStrings <- function(outerFmt, strs, ...) {
     if (is.null(strs)) {
         NULL
     } else if (!is.character(strs)) {
         stop(sprintf("the argument 'strs' should be a character vector: '%s'",
                      strs))
     } else if (length(strs) > 0) {
-        pasted <- paste0(strs, collapse=collapse)
-        stop(sprintf(fmt=fmt, pasted, ...))
+        pasted <- formatCharVector(strs, ...)
+        stop(sprintf(fmt=outerFmt, pasted))
     } else {
         strs
     }
 }
 
-setClass('Environment', slots=c(
+setClass('OrderedBindings', slots=c(
     nameSet='NameSet',
     innerEnv='environment'))
-setMethod('initialize', 'Environment', function(.Object, nameSet, innerEnv, ...) {
+setMethod('initialize', 'OrderedBindings', function(.Object, nameSet, innerEnv, ...) {
     .Object <- callNextMethod(.Object, ...)
     envNames <- names(innerEnv)
     remainingNames <- setdiff(nameSet@names, envNames)
     stopCollectingStrings(
-        fmt=paste(
-            "the names in the NameSet are not all in the environment.",
-            "missing: [%s]"),
+        fmt=paste("the names in the NameSet are not all in the environment.",
+                  "missing: %s"),
         strs=remainingNames)
     .Object@nameSet <- nameSet
     .Object@innerEnv <- innerEnv
@@ -214,13 +213,13 @@ setMethod('initialize', 'UniquelyNamedList', function(.Object, ...) {
     .Object
 })
 
-setAs(from='UniquelyNamedList', to='Environment', function(from) {
+setAs(from='UniquelyNamedList', to='OrderedBindings', function(from) {
     listForm <- from@args
     listEnv <- listForm %>% as.environment
     listForm %>%
         names %>%
         new('NameSet', names=.) %>%
-        new('Environment', nameSet=., innerEnv=listEnv)
+        new('OrderedBindings', nameSet=., innerEnv=listEnv)
 })
 
 setGeneric('getEnv', function(fromEnv, name) {
@@ -228,7 +227,7 @@ setGeneric('getEnv', function(fromEnv, name) {
 }, valueClass='NamedValue')
 
 setMethod('getEnv', signature(
-    fromEnv='Environment',
+    fromEnv='OrderedBindings',
     name='character'
 ), function(fromEnv, name) {
     fromEnv@innerEnv %>%
@@ -252,7 +251,7 @@ setGeneric('namedIterate', function(env, visitor) {
 }, valueClass='list')
 
 setMethod('namedIterate', signature(
-    env='Environment',
+    env='OrderedBindings',
     visitor='function'
 ), function(env, visitor) {
     envNames <- env %>% .@nameSet %>% .@names
@@ -270,7 +269,7 @@ unlistFilter <- function(listArg, pred=is.null) {
         unlist
 }
 
-setClass('TypeRequirements', contains='Environment')
+setClass('TypeRequirements', contains='OrderedBindings')
 setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
     nonTypeEntryNames <- .Object %>% namedIterate(function(pair) {
@@ -282,13 +281,13 @@ setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
     }) %>% unlistFilter
     stopCollectingStrings(
         fmt=paste(
-            "entries in TypeRequirements should all be instances of Type: ",
-            "invalid entries [%s]"),
+            "entries in TypeRequirements should all be",
+            "instances of the Type class. invalid entries: %s"),
         strs=nonTypeEntryNames)
     .Object
 })
 
-setClass('TypedEnvironment', contains='Environment')
+setClass('TypedEnvironment', contains='OrderedBindings')
 setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
     untypedEntryNames <- .Object %>% namedIterate(function(pair) {
@@ -301,8 +300,8 @@ setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
     stopCollectingStrings(
         fmt=paste(
             "entries in TypedEnvironment should all be",
-            "(instances of) subclasses of TypedPromise: ",
-            "invalid entries [%s]"),
+            "(instances of) subclasses of TypedPromise.",
+            "invalid entries: %s"),
         strs=untypedEntryNames)
     .Object
 })
@@ -335,43 +334,44 @@ setMethod('checkTypedArgs', signature(
                     name, promiseType@name, declaredType@name)
         }
     }) %>% unlistFilter
-    stopCollectingStrings(fmt="errors in type checking arguments:\n%s",
+    stopCollectingStrings(outerFmt="errors in type checking arguments: %s",
                           strs=wrongTypedEntryNames,
+                          fmt="- %s",
+                          surround="[\n%s\n]",
                           collapse="\n")
     argPromises
 })
 
 setClass('FunctionBody', slots=c(bracedBody='{'))
 
-setClass('PureSignature', slots=c(
+setClass('FunctionSignature', slots=c(
     inputs='TypeRequirements',
     output='Type'
 ))
 
-setGeneric('makePureSignature', function(lhs, rhs) {
-    standardGeneric('makePureSignature')
-}, valueClass='PureSignature')
+setGeneric('makeSignature', function(lhs, rhs) {
+    standardGeneric('makeSignature')
+}, valueClass='FunctionSignature')
 
-setMethod('makePureSignature', signature(
+setMethod('makeSignature', signature(
     lhs='TypeRequirements',
     rhs='Type'
 ), function(lhs, rhs) {
-    new('PureSignature', inputs=lhs, output=rhs)
+    new('FunctionSignature', inputs=lhs, output=rhs)
 })
 
-setMethod('makePureSignature', signature(
+setMethod('makeSignature', signature(
     lhs='TypeRequirements',
     rhs='character'
 ), function(lhs, rhs) {
-    new('PureSignature', inputs=lhs, output=new('Type', name=rhs))
+    new('FunctionSignature', inputs=lhs, output=new('Type', name=rhs))
 })
 
-## setClass('EffectSignature', contains='PureSignature', slots=c())
 
 ## TODO: have some way to wrap errors in the TypedFunction class (i.e. specify
 ## recognized errors for use in a tryCatch)
 setClass('TypedFunction', slots=c(
-    signature='PureSignature',
+    signature='FunctionSignature',
     f='function'
 ))
 
@@ -380,7 +380,7 @@ setGeneric('makeTypedFunction', function(signature, body) {
 }, valueClass='TypedFunction')
 
 setMethod('makeTypedFunction', signature(
-    signature='PureSignature',
+    signature='FunctionSignature',
     body='FunctionBody'
 ), function(signature, body) {
     inputs <- signature@inputs
@@ -391,14 +391,14 @@ setMethod('makeTypedFunction', signature(
 })
 
 setMethod('makeTypedFunction', signature(
-    signature='PureSignature',
+    signature='FunctionSignature',
     body='function'
 ), function(signature, body) {
     new('TypedFunction', signature=signature, body=body)
 })
 
 setMethod('makeTypedFunction', signature(
-    signature='PureSignature',
+    signature='FunctionSignature',
     body='{'
 ), function(signature, body) {
     makeTypedFunction(signature, new('FunctionBody', bracedBody=body))
@@ -469,7 +469,7 @@ setMethod('toEmptyAlist', signature(
 })
 
 setMethod('toEmptyAlist', signature(
-    x='Environment'
+    x='OrderedBindings'
 ), function(x) {
     x@nameSet@names %>% toEmptyAlist
 })
@@ -509,7 +509,7 @@ setMethod('asCheckedClosure', signature(
             new('TypedEnvironment',
                 nameSet=., innerEnv=as(uniqNameArgs, 'environment'))
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
-        evaluate(call, environment())
+        evaluate(call)
     }
     formals(retFun) <- toEmptyAlist(inputs)
     retFun
@@ -529,7 +529,7 @@ lit <- function(x) {
 reqs <- function(...) {
     argList <- list(...)
     uniqNameList <- new('UniquelyNamedList', args=argList)
-    argsEnv <- as(uniqNameList, 'Environment')
+    argsEnv <- as(uniqNameList, 'OrderedBindings')
     new('TypeRequirements', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
 }
 
@@ -542,7 +542,7 @@ params <- function(...) {
 link <- function(...) {
     argList <- list(...)
     uniqNameList <- new('UniquelyNamedList', args=argList)
-    argsEnv <- as(uniqNameList, 'Environment')
+    argsEnv <- as(uniqNameList, 'OrderedBindings')
     new('TypedEnvironment', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
 }
 
@@ -557,7 +557,7 @@ body <- function(bracedExpr) {
 }
 
 `%->%` <- function(lhs, rhs) {
-    makePureSignature(lhs, rhs)
+    makeSignature(lhs, rhs)
 }
 
 `%:%` <- function(lhs, rhs) {
