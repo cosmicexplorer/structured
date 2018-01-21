@@ -237,6 +237,10 @@ values <- function(...) {
     new('ValueArgumentList', args=list(...))
 }
 
+body <- function(bracedExpr) {
+    substitute(bracedExpr)
+}
+
 setGeneric('%->%', function(lhs, rhs) {
     standardGeneric('%->%')
 })
