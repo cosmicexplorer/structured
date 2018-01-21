@@ -18,40 +18,102 @@
 
 
 
-### parameters and products (ins and outs and ins)
-### these use the SAME TYPES!!!!
-## ???
+### error types
+setClass('Exception')
 
 
-isValidTypeName <- function(x) {
-    is.character(x) &&
-        (length(x) == 1) &&
-        isTRUE(x != '')
+validateTypeNameString <- function(s) {
+    if (!(is.character(s) &&
+          (length(s) == 1) &&
+          isTRUE(s != ''))) {
+        stop(sprintf("'%s' is not a valid name string", s))
+    }
+    s
 }
 
-setClass('TypeName', slots=c(name='character'))
-setMethod('initialize', 'TypeName', function(.Object, ...) {
+setClass('Type', slots=c(name='character'))
+setMethod('initialize', 'Type', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
-    if (!isValidTypeName(.Object@name)) {
-        stop(sprintf("invalid type name: '%s'", .Object@name))
+    .Object@name <- validateTypeNameString(.Object@name)
+    .Object
+})
+
+setGeneric('isType', function(type, object) {
+    standardGeneric('isType')
+}, valueClass='logical')
+
+setMethod('isType', signature(
+    type='Type',
+    object='ANY'
+), function(type, object) {
+    is(object, type@name)
+})
+
+setGeneric('extendsType', function(super, sub) {
+    standardGeneric('extendsType')
+}, valueClass='logical')
+
+setMethod('extendsType', signature(
+    super='Type',
+    sub='Type'
+), function(super, sub) {
+    extends(sub@name, super@name)
+})
+
+setClass('TypedPromise', slots=c(type='Type'))
+
+## gets the type of the argument with `class`
+setClass('TypedLiteral', contains='TypedPromise', slots=c(value='ANY'))
+setMethod('initialize', 'TypedLiteral', function(.Object, value, ...) {
+    objectType <- new('Type', name=class(value))
+    .Object <- callNextMethod(.Object, type=objectType, ...)
+    .Object@value <- value
+    .Object
+})
+
+## setClass('TypedOptional', contains='TypedPromise', slots=c(value='ANY'))
+
+setClass('NameSet', slots=c(names='character'))
+setMethod('initialize', 'NameSet', function(.Object, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    nm <- .Object@names
+    if (length(nm) <= 0) {
+        stop("a NameSet should have at least one name")
+    }
+    if (any(nm == '') ||
+        anyDuplicated(nm)) {
+        stop(sprintf("names in a NameSet should be nonempty and unique: [%s]",
+                     paste0(nm, collapse=", ")))
     }
     .Object
 })
 
-setGeneric('isType', function(typeName, object) {
-    standardGeneric('isType')
+setClass('Environment', slots=c(
+    nameSet='NameSet',
+    innerEnv='environment'))
+setMethod('initialize', 'Environment', function(.Object, nameSet, innerEnv, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    envNames <- names(innerEnv)
+    remainingNames <- setdiff(nameSet@names, envNames)
+    if (length(remainingNames) > 0) {
+        stop(sprintf(paste(
+            "the names in the NameSet: [%s]",
+            "are not all in the environment: '%s'"),
+            paste0(nameSet@names, collapse=", "),
+            innerEnv))
+    }
+    .Object@nameSet <- nameSet
+    .Object@innerEnv <- innerEnv
+    .Object
 })
 
-setMethod('isType', signature(
-    typeName='TypeName',
-    object='ANY'
-), function(typeName, object) {
-    is(object, typeName@name)
-})
+setClass('NamedValue', slots=c(
+    name='character',
+    value='ANY'
+))
 
-### some useful macros to define tasks
 ## check if list, not empty, all named, no repeated names
-checkUniquelyNamedList <- function(x) {
+validateUniquelyNamedList <- function(x) {
     if (!is.list(x) ||
         length(x) <= 0) {
         stop(sprintf("argument should be a non-empty list: '%s'", x))
@@ -67,79 +129,147 @@ checkUniquelyNamedList <- function(x) {
     x
 }
 
-setClass('NamedArgumentList', slots=c(args='list'))
-setMethod('initialize', 'NamedArgumentList', function(.Object, ...) {
+setClass('UniquelyNamedList', slots=c(args='list'))
+setMethod('initialize', 'UniquelyNamedList', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
-    .Object@args <- checkUniquelyNamedList(.Object@args)
+    .Object@args <- validateUniquelyNamedList(.Object@args)
     .Object
 })
+setAs(from='UniquelyNamedList', to='environment', function(from) {
+    from@args %>% as.environment
+})
 
-setClass('ValueArgumentList', contains='NamedArgumentList')
+setGeneric('getEnv', function(fromEnv, name) {
+    standardGeneric('getEnv')
+}, valueClass='NamedValue')
 
-setClass('TypedArgumentList', contains='NamedArgumentList')
-setMethod('initialize', 'TypedArgumentList', function(.Object, ...) {
-    .Object <- callNextMethod(.Object, ...)
-    .Object@args <- lapply(.Object@args, function(typeNameStr) {
-        new('TypeName', name=typeNameStr)
+setMethod('getEnv', signature(
+    fromEnv='Environment',
+    name='character'
+), function(fromEnv, name) {
+    fromEnv@innerEnv %>%
+        get(name, envir=.) %>%
+        new('NamedValue', name=name, value=.)
+})
+
+setGeneric('sameNames', function(lhs, rhs) {
+    standardGeneric('sameNames')
+}, valueClass='logical')
+
+setMethod('sameNames', signature(
+    lhs='NameSet',
+    rhs='NameSet'
+), function(lhs, rhs) {
+    setequal(lhs@names, rhs@names)
+})
+
+setGeneric('namedIterate', function(env, visitor) {
+    standardGeneric('namedIterate')
+}, valueClass='list')
+
+setMethod('namedIterate', signature(
+    env='Environment',
+    visitor='function'
+), function(env, visitor) {
+    envNames <- env %>% .@nameSet %>% .@names
+    namedPairs <- lapply(envNames, function(name) {
+        getEnv(env, name) %>%
+            .@value %>%
+            new('NamedValue', name=name, value=.)
     })
-    .Object
+    namedPairs %>% lapply(visitor)
 })
 
-makeNamedNoValueAlist <- function(names) {
-    if (!is.character(names) ||
-        length(names) <= 0) {
-        stop(sprintf("argument should be a non-empty character vector: '%s'",
-                     names))
-    }
-    rep(list(bquote()), length(names)) %>%
-        setNames(names) %>%
-        as.pairlist()
+unlistFilter <- function(listArg, pred=is.null) {
+    listArg %>%
+        Filter(x=., f=Negate(pred)) %>%
+        unlist
 }
 
-setGeneric('toAlist', function(x) {
-    standardGeneric('toAlist')
+setClass('TypeRequirements', contains='Environment')
+setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    nonTypeEntryNames <- .Object %>% namedIterate(function(pair) {
+        if (is(pair@value, 'Type')) {
+            NULL
+        } else {
+            pair@name
+        }
+    }) %>% unlistFilter
+    if (length(nonTypeEntryNames) > 0) {
+        stop(sprintf(paste(
+            "entries in TypeRequirements should all be instances of Type: ",
+            "invalid entries [%s]"),
+            paste0(nonTypeEntryNames, collapse=',')))
+    }
+    .Object
 })
 
-setMethod('toAlist', signature(
-    x='TypedArgumentList'
-), function (x) {
-    x@args %>% names %>% makeNamedNoValueAlist
+setClass('TypedEnvironment', contains='Environment')
+setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    untypedEntryNames <- .Object %>% namedIterate(function(pair) {
+        if (is(pair@value, 'TypedPromise')) {
+            NULL
+        } else {
+            pair@name
+        }
+    }) %>% unlistFilter
+    if (length(untypedEntryNames) > 0) {
+        stop(sprintf(paste(
+            "entries in TypedEnvironment should all be",
+            "(instances of) subclasses of TypedPromise: ",
+            "invalid entries [%s]"),
+            paste0(untypedEntryNames, collapse=',')))
+    }
+    .Object
 })
 
-setGeneric('checkTypedArgs', function(argTypes, argValues) {
+setGeneric('checkTypedArgs', function(argTypes, argPromises) {
     standardGeneric('checkTypedArgs')
-})
+}, valueClass='TypedEnvironment')
 
 ## NOTE: checks types in order of declared types, not invoked values
 setMethod('checkTypedArgs', signature(
-    argTypes='TypedArgumentList',
-    argValues='ValueArgumentList'
-), function(argTypes, argValues) {
-    declaredNames <- names(argTypes@args)
-    givenNames <- names(argValues@args)
-    if (!setequal(declaredNames, givenNames)) {
-        stop(sprintf(
-            "declared argument: '%s' differ from invocation arguments: '%s'",
+    argTypes='TypeRequirements',
+    argPromises='TypedEnvironment'
+), function(argTypes, argPromises) {
+    declaredNames <- argTypes@nameSet
+    givenNames <- argPromises@nameSet
+    if (!sameNames(declaredNames, givenNames)) {
+        stop(sprintf(paste(
+            "declared argument names: '%s'",
+            "differ from invocation argument names: '%s'"),
             declaredNames, givenNames))
     }
-    for (name in declaredNames) {
-        type <- argTypes@args[[name]]
-        value <- argValues@args[[name]]
-        if (!isType(type, value)) {
-            stop(sprintf("type: '%s' check failed for argument: '%s'",
-                         type@name, value))
+    wrongTypedEntryNames <- declaredNames@names %>% lapply(function(name) {
+        declaredType <- argTypes %>% getEnv(name) %>% .@value
+        promiseType <- argPromises %>% getEnv(name) %>% .@value %>% .@type
+        if (extendsType(super=declaredType, sub=promiseType)) {
+            NULL
+        } else {
+            sprintf(paste("argument '%s' has type '%s',",
+                          "which does not extend the declared type '%s'"),
+                    name, promiseType@name, declaredType@name)
         }
+    }) %>% unlistFilter
+    if (length(wrongTypedEntryNames) > 0) {
+        stop(paste("errors in type checking arguments:",
+                   paste0(wrongTypedEntryNames, collapse="\n"),
+                   sep="\n"))
     }
-    argValues
+    argPromises
 })
 
 setClass('FunctionBody', slots=c(bracedBody='{'))
 
 setClass('Signature', slots=c(
-    inputs='TypedArgumentList',
-    output='TypeName'
+    inputs='TypeRequirements',
+    output='Type'
 ))
 
+## TODO: have some way to wrap errors in the TypedFunction class (i.e. specify
+## recognized errors for use in a tryCatch)
 setClass('TypedFunction', slots=c(
     signature='Signature',
     f='function'
@@ -147,44 +277,83 @@ setClass('TypedFunction', slots=c(
 
 setGeneric('makeTypedFunction', function(signature, body) {
     standardGeneric('makeTypedFunction')
-})
+}, valueClass='TypedFunction')
 
 setMethod('makeTypedFunction', signature(
     signature='Signature',
     body='FunctionBody'
 ), function(signature, body) {
     inputs <- signature@inputs
-    argNames <- names(inputs@args)
-    outType <- signature@output
     new('TypedFunction',
         signature=signature,
-        f=pryr::make_function(args=toAlist(inputs),
+        f=pryr::make_function(args=toEmptyAlist(inputs),
                               body=body@bracedBody))
 })
 
-setClass('TypedCall', slots=c(
+setClass('TypedCall', contains='TypedPromise', slots=c(
     fun='TypedFunction',
-    argValues='ValueArgumentList'
+    argValues='TypedEnvironment'
 ))
+setMethod('initialize', 'TypedCall', function(.Object, fun, argValues, ...) {
+    sig <- fun@signature
+    resultType <- sig@output
+    .Object <- callNextMethod(.Object, type=resultType, ...)
+    .Object@argValues <- sig@inputs %>%
+        checkTypedArgs(argTypes=., argPromises=argValues)
+    .Object@fun <- fun
+    .Object
+})
 
-setGeneric('evaluate', function(typedCall, env) {
+setGeneric('evaluate', function(typedCall, inEnv) {
     standardGeneric('evaluate')
 })
 
 setMethod('evaluate', signature(
     typedCall='TypedCall',
-    env='environment'
-), function(typedCall, env) {
+    inEnv='environment'
+), function(typedCall, inEnv) {
     fun <- typedCall@fun
     sig <- fun@signature
-    argValues <- checkTypedArgs(sig@inputs, typedCall@argValues)
-    result <- do.call(fun@f, argValues@args, envir=env)
+    argsNamedList <- typedCall@argValues %>%
+        .@innerEnv %>%
+        as.list %>% lapply(function(x) {
+            stopifnot(is(x, 'TypedLiteral'))
+            x@value
+        })
+    result <- do.call(fun@f, argsNamedList, envir=inEnv)
     output <- sig@output
     if (!isType(output, result)) {
         stop(sprintf("type: '%s' check failed for result: '%s'",
                      output@name, result))
     }
     result
+})
+
+makeEmptyAlistFromNames <- function(names) {
+    if (!is.character(names) ||
+        length(names) <= 0) {
+        stop(sprintf("argument should be a non-empty character vector: '%s'",
+                     names))
+    }
+    rep(list(bquote()), length(names)) %>%
+        setNames(names) %>%
+        as.pairlist
+}
+
+setGeneric('toEmptyAlist', function(x) {
+    standardGeneric('toEmptyAlist')
+}, valueClass='pairlist')
+
+setMethod('toEmptyAlist', signature(
+    x='character'
+), function(x) {
+    makeEmptyAlistFromNames(x)
+})
+
+setMethod('toEmptyAlist', signature(
+    x='Environment'
+), function(x) {
+    x@innerEnv %>% names %>% toEmptyAlist
 })
 
 getArgumentListOfCall <- function(arg) {
@@ -196,7 +365,7 @@ getArgumentListOfCall <- function(arg) {
 
 setGeneric('asCheckedClosure', function(typedFunction) {
     standardGeneric('asCheckedClosure')
-})
+}, valueClass='function')
 
 ## TODO: make the 'print' of this look prettier -- show the real function body
 ## somehow, along with type-checking information. use separate class?
@@ -211,30 +380,63 @@ setMethod('asCheckedClosure', signature(
 ), function(typedFunction) {
     sig <- typedFunction@signature
     inputs <- sig@inputs
-    argNames <- names(inputs@args)
     retFun <- function(...) {
-        args <- getArgumentListOfCall(match.call())
-        argValues <- new('ValueArgumentList', args=args)
+        args <- match.call() %>%
+            getArgumentListOfCall %>%
+            new('UniquelyNamedList', args=.)
+        argValues <- new('TypedEnvironment', innerEnv=as(args, 'environment'))
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
         evaluate(call, environment())
     }
-    formals(retFun) <- toAlist(inputs)
+    formals(retFun) <- toEmptyAlist(inputs)
     retFun
 })
 
 
 
 ### wrappers, operators, and macros
-params <- function(...) {
-    new('TypedArgumentList', args=list(...))
-}
-
 type <- function(name) {
-    new('TypeName', name=name)
+    new('Type', name=name)
 }
 
-values <- function(...) {
-    new('ValueArgumentList', args=list(...))
+get_class_type <- function(x) {
+    x %>% class %>% type
+}
+
+lit <- function(x) {
+    new('TypedLiteral', value=x)
+}
+
+reqs <- function(...) {
+    argList <- list(...)
+    uniqNameList <- new('UniquelyNamedList', args=argList)
+    uniqNameList@args %>%
+        names %>%
+        new('NameSet', names=.) %>%
+        new('TypeRequirements',
+            nameSet=., innerEnv=as(uniqNameList, 'environment'))
+}
+
+params <- function(...) {
+    list(...) %>%
+        lapply(function(x) { new('Type', name=x) }) %>%
+        do.call(reqs, args=.)
+}
+
+link <- function(...) {
+    argList <- list(...)
+    uniqNameList <- new('UniquelyNamedList', args=argList)
+    uniqNameList@args %>%
+        names %>%
+        new('NameSet', names=.) %>%
+        new('TypedEnvironment',
+            nameSet=., innerEnv=as(uniqNameList, 'environment'))
+}
+
+literals <- function(...) {
+    list(...) %>%
+        lapply(function(x) { new('TypedLiteral', value=x) }) %>%
+        do.call(link, args=.)
 }
 
 body <- function(bracedExpr) {
@@ -243,25 +445,25 @@ body <- function(bracedExpr) {
 
 setGeneric('%->%', function(lhs, rhs) {
     standardGeneric('%->%')
-})
+}, valueClass='Signature')
 
 setMethod('%->%', signature(
-    lhs='TypedArgumentList',
-    rhs='TypeName'
+    lhs='TypeRequirements',
+    rhs='Type'
 ), function(lhs, rhs) {
     new('Signature', inputs=lhs, output=rhs)
 })
 
 setMethod('%->%', signature(
-    lhs='TypedArgumentList',
+    lhs='TypeRequirements',
     rhs='character'
 ), function(lhs, rhs) {
-    new('Signature', inputs=lhs, output=new('TypeName', name=rhs))
+    new('Signature', inputs=lhs, output=new('Type', name=rhs))
 })
 
 setGeneric('%:%', function(lhs, rhs) {
     standardGeneric('%:%')
-})
+}, valueClass='TypedFunction')
 
 setMethod('%:%', signature(
     lhs='Signature',
@@ -279,14 +481,13 @@ setMethod('%:%', signature(
 
 setGeneric('%=>%', function(lhs, rhs) {
     standardGeneric('%=>%')
-})
+}, valueClass='TypedCall')
 
 setMethod('%=>%', signature(
-    lhs='ValueArgumentList',
+    lhs='TypedEnvironment',
     rhs='TypedFunction'
 ), function(lhs, rhs) {
-    call <- new('TypedCall', fun=rhs, argValues=lhs)
-    evaluate(call, parent.frame())
+    new('TypedCall', fun=rhs, argValues=lhs)
 })
 
 
