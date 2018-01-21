@@ -348,7 +348,8 @@ setMethod('evaluate', signature(
     sig <- fun@signature
     argsNamedList <- typedCall@argValues %>%
         .@innerEnv %>%
-        as.list %>% lapply(function(x) {
+        as.list %>%
+        lapply(function(x) {
             stopifnot(is(x, 'TypedLiteral'))
             x@value
         })
@@ -385,7 +386,7 @@ setMethod('toEmptyAlist', signature(
 setMethod('toEmptyAlist', signature(
     x='Environment'
 ), function(x) {
-    x@innerEnv %>% names %>% toEmptyAlist
+    x@nameSet@names %>% toEmptyAlist
 })
 
 getArgumentListOfCall <- function(arg) {
@@ -413,10 +414,15 @@ setMethod('asCheckedClosure', signature(
     sig <- typedFunction@signature
     inputs <- sig@inputs
     retFun <- function(...) {
-        args <- match.call() %>%
+        uniqNameArgs <- match.call() %>%
             getArgumentListOfCall %>%
+            lapply(function(x) { new('TypedLiteral', value=x) }) %>%
             new('UniquelyNamedList', args=.)
-        argValues <- new('TypedEnvironment', innerEnv=as(args, 'environment'))
+        argValues <- uniqNameArgs@args %>%
+            names %>%
+            new('NameSet', names=.) %>%
+            new('TypedEnvironment',
+                nameSet=., innerEnv=as(uniqNameArgs, 'environment'))
         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
         evaluate(call, environment())
     }
