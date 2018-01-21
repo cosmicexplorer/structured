@@ -131,8 +131,8 @@ setMethod('initialize', 'NameSet', function(.Object, ...) {
     }
     if (any(nm == '') ||
         anyDuplicated(nm)) {
-        stop(sprintf("names in a NameSet should be nonempty and unique: [%s]",
-                     paste0(nm, collapse=", ")))
+        stop(sprintf("names in a NameSet should be nonempty and unique: %s",
+                     formatCharVector(nm)))
     }
     .Object
 })
@@ -173,6 +173,20 @@ setClass('NamedValue', slots=c(
     value='ANY'
 ))
 
+formatCharVector <- function(strs, fmt="'%s'", collapse=", ", surround="[%s]") {
+    if (is.null(strs)) {
+        'NULL'
+    } else {
+        if (is.list(strs)) {
+            strs <- unlist(strs)
+        }
+        strs %>%
+            sprintf(fmt=fmt, .) %>%
+            paste0(collapse=collapse) %>%
+            sprintf(fmt=surround, .)
+    }
+}
+
 ## check if list, not empty, all named, no repeated names
 validateUniquelyNamedList <- function(x) {
     if (!is.list(x) ||
@@ -180,12 +194,15 @@ validateUniquelyNamedList <- function(x) {
         stop(sprintf("argument should be a non-empty list: '%s'", x))
     }
     listNames <- names(x)
-    if (is.null(listNames) ||
-        any(listNames == '') ||
+    if (is.null(listNames)) {
+        stop("list names cannot be NULL")
+    }
+    if (any(listNames == '') ||
         anyDuplicated(listNames)) {
         stop(sprintf(
-            "list must have unique, nonempty names for each element: '%s'",
-            x))
+            paste("list must have unique, nonempty names for each element.",
+                  "the names were: %s"),
+            formatCharVector(listNames)))
     }
     x
 }
@@ -196,8 +213,14 @@ setMethod('initialize', 'UniquelyNamedList', function(.Object, ...) {
     .Object@args <- validateUniquelyNamedList(.Object@args)
     .Object
 })
-setAs(from='UniquelyNamedList', to='environment', function(from) {
-    from@args %>% as.environment
+
+setAs(from='UniquelyNamedList', to='Environment', function(from) {
+    listForm <- from@args
+    listEnv <- listForm %>% as.environment
+    listForm %>%
+        names %>%
+        new('NameSet', names=.) %>%
+        new('Environment', nameSet=., innerEnv=listEnv)
 })
 
 setGeneric('getEnv', function(fromEnv, name) {
@@ -296,10 +319,10 @@ setMethod('checkTypedArgs', signature(
     declaredNames <- argTypes@nameSet
     givenNames <- argPromises@nameSet
     if (!sameNames(declaredNames, givenNames)) {
-        stop(sprintf(paste(
-            "declared argument names: '%s'",
-            "differ from invocation argument names: '%s'"),
-            declaredNames, givenNames))
+        stop(sprintf(paste("declared argument names: %s",
+                           "differ from invocation argument names: %s"),
+                     formatCharVector(declaredNames@names),
+                     formatCharVector(givenNames@names)))
     }
     wrongTypedEntryNames <- declaredNames@names %>% lapply(function(name) {
         declaredType <- argTypes %>% getEnv(name) %>% .@value
@@ -499,10 +522,6 @@ type <- function(name) {
     new('Type', name=name)
 }
 
-get_class_type <- function(x) {
-    x %>% class %>% type
-}
-
 lit <- function(x) {
     new('TypedLiteral', value=x)
 }
@@ -510,11 +529,8 @@ lit <- function(x) {
 reqs <- function(...) {
     argList <- list(...)
     uniqNameList <- new('UniquelyNamedList', args=argList)
-    uniqNameList@args %>%
-        names %>%
-        new('NameSet', names=.) %>%
-        new('TypeRequirements',
-            nameSet=., innerEnv=as(uniqNameList, 'environment'))
+    argsEnv <- as(uniqNameList, 'Environment')
+    new('TypeRequirements', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
 }
 
 params <- function(...) {
@@ -526,11 +542,8 @@ params <- function(...) {
 link <- function(...) {
     argList <- list(...)
     uniqNameList <- new('UniquelyNamedList', args=argList)
-    uniqNameList@args %>%
-        names %>%
-        new('NameSet', names=.) %>%
-        new('TypedEnvironment',
-            nameSet=., innerEnv=as(uniqNameList, 'environment'))
+    argsEnv <- as(uniqNameList, 'Environment')
+    new('TypedEnvironment', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
 }
 
 literals <- function(...) {
