@@ -23,7 +23,8 @@
 validateTypeNameString <- function(s) {
     if (!(is.character(s) &&
           (length(s) == 1) &&
-          isTRUE(s != ''))) {
+          isTRUE(s != '') &&
+          isTRUE(!is.na(s)))) {
         stop(sprintf("'%s' is not a valid name string", s))
     }
     s
@@ -132,8 +133,10 @@ setMethod('initialize', 'NameSet', function(.Object, ...) {
         stop("a NameSet should have at least one name")
     }
     if (any(nm == '') ||
+        any(is.na(nm)) ||
         anyDuplicated(nm)) {
-        stop(sprintf("names in a NameSet should be nonempty and unique: %s",
+        stop(sprintf(paste("names in a NameSet should be nonempty, non-NA,",
+                           "and unique: %s"),
                      formatCharVector(nm)))
     }
     .Object
