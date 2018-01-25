@@ -1,4 +1,4 @@
-### dag.R -- insert description here
+### model.R -- create a dynamic representation of typechecked execution
 ### This file is free software; you can redistribute it and/or modify
 ### it under the terms of the GNU General Public License as published by
 ### the Free Software Foundation; either version 3, or (at your option)
@@ -18,10 +18,8 @@
 
 
 
-### error types
-setClass('Exception')
+### types and values
 
-
 validateTypeNameString <- function(s) {
     if (!(is.character(s) &&
           (length(s) == 1) &&
@@ -121,6 +119,10 @@ setMethod('makeOption', signature(
         new('TypedOption', type=type, hasValue=TRUE, value=value)
     }
 })
+
+
+
+### environments
 
 setClass('NameSet', slots=c(names='character'))
 setMethod('initialize', 'NameSet', function(.Object, ...) {
@@ -270,6 +272,10 @@ setMethod('namedIterate', signature(
     namedPairs %>% lapply(visitor)
 })
 
+
+
+### type requirements, and fulfilling those requirements
+
 unlistFilter <- function(listArg, pred=is.null) {
     listArg %>%
         Filter(x=., f=Negate(pred)) %>%
@@ -349,8 +355,6 @@ setMethod('checkTypedArgs', signature(
     argPromises
 })
 
-setClass('FunctionBody', slots=c(bracedBody='{'))
-
 setClass('FunctionSignature', slots=c(
     inputs='TypeRequirements',
     output='Type'
@@ -375,10 +379,16 @@ setMethod('makeSignature', signature(
     makeSignature(lhs, forType)
 })
 
+
+
+### execute code with checked types
+
 setClass('TypedFunction', slots=c(
     signature='FunctionSignature',
     f='function'
 ))
+
+setClass('FunctionBody', slots=c(bracedBody='{'))
 
 setGeneric('makeTypedFunction', function(signature, body) {
     standardGeneric('makeTypedFunction')
@@ -541,10 +551,11 @@ lit <- function(x) {
 }
 
 reqs <- function(...) {
-    argList <- list(...)
-    uniqNameList <- new('UniquelyNamedList', args=argList)
-    argsEnv <- as(uniqNameList, 'OrderedBindings')
-    new('TypeRequirements', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
+    list(...) %>%
+        new('UniquelyNamedList', args=.) %>%
+        as('OrderedBindings') %>% {
+            new('TypeRequirements', nameSet=.@nameSet, innerEnv=.@innerEnv)
+        }
 }
 
 params <- function(...) {
@@ -554,10 +565,11 @@ params <- function(...) {
 }
 
 link <- function(...) {
-    argList <- list(...)
-    uniqNameList <- new('UniquelyNamedList', args=argList)
-    argsEnv <- as(uniqNameList, 'OrderedBindings')
-    new('TypedEnvironment', nameSet=argsEnv@nameSet, innerEnv=argsEnv@innerEnv)
+    list(...) %>%
+        new('UniquelyNamedList', args=.) %>%
+        as('OrderedBindings') %>% {
+            new('TypedEnvironment', nameSet=.@nameSet, innerEnv=.@innerEnv)
+        }
 }
 
 literals <- function(...) {
@@ -587,7 +599,3 @@ body <- function(bracedExpr) {
 `%=>%` <- function(lhs, rhs) {
     new('TypedCall', fun=rhs, argValues=lhs)
 }
-
-
-### tasks (/ scheduling?)
-## setClass('Task', slots=c())

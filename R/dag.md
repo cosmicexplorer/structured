@@ -131,7 +131,7 @@ progress
 **TODO: this needs an MVP**
 
 - [ ] define [graphs](#graphs)
-    - [ ] start with really simple class in [dag.R](dag.R)
+    - [ ] start with really simple class in [model.R](model.R)
 - [ ] define [types](#types)
 - [ ] define [tasks](#tasks) with [parameters](#parameters) as above to form *task dep graph*
 - [ ] set and validate parameters as above to form *[invocation](#invocation) graph*
