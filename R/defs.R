@@ -438,45 +438,32 @@ setMethod('makeTypedCall', signature(
     new('ImmediatelyEvaluableTypedCall', fun=rhs, immediates=lhs)
 })
 
-## setGeneric('evaluateNow', function(typedCall, inEnv) {
-##     standardGeneric('evaluateNow')
-## })
+setGeneric('evaluateNow', function(invocation, inEnv) {
+    standardGeneric('evaluateNow')
+})
 
-## setMethod('evaluateNow', signature(
-##     typedCall='TypedCall',
-##     inEnv='environment'
-## ), function(typedCall, inEnv) {
-##     fun <- typedCall@fun
-##     sig <- fun@signature
-##     argValues <- typedCall@argValues
-##     nonLiteralArgs <- argValues %>% namedIterate(function(pair) {
-##         if(is(pair@value, 'TypedLiteral')) {
-##             NULL
-##         } else {
-##             pair@name
-##         }
-##     }) %>% unlistFilter
-##     stopCollectingStrings(
-##         outerFmt=paste("for evaluateNow, all arguments provided to TypedCall",
-##                        "should be instances of TypedLiteral.",
-##                        "non-literal arguments were: %s"),
-##         strs=nonLiteralArgs
-##     )
-##     argsNamedList <- argValues %>%
-##         as('UniquelyNamedList') %>%
-##         .@args %>%
-##         lapply(function(x) { x@value })
-##     result <- do.call(fun@f, argsNamedList, envir=inEnv)
-##     output <- sig@output
-##     checkType(sig@output, result)
-## })
+setMethod('evaluateNow', signature(
+    invocation='ImmediatelyEvaluableTypedCall',
+    inEnv='environment'
+), function(invocation, inEnv) {
+    fun <- invocation@fun
+    sig <- fun@signature
+    argValues <- invocation@immediates
+    argsNamedList <- argValues %>%
+        as('UniquelyNamedList') %>%
+        .@args %>%
+        lapply(function(x) { x@value })
+    result <- do.call(fun@f, argsNamedList, envir=inEnv)
+    output <- sig@output
+    checkType(sig@output, result)
+})
 
-## setMethod('evaluateNow', signature(
-##     typedCall='TypedCall',
-##     inEnv='missing'
-## ), function(typedCall) {
-##     evaluateNow(typedCall, environment())
-## })
+setMethod('evaluateNow', signature(
+    invocation='ImmediatelyEvaluableTypedCall',
+    inEnv='missing'
+), function(invocation) {
+    evaluateNow(invocation, environment())
+})
 
 makeEmptyAlistFromNames <- function(names) {
     if (!is.character(names) ||
@@ -512,37 +499,38 @@ getArgumentListOfCall <- function(arg) {
     arg %>% as.list %>% .[-1]
 }
 
-## setGeneric('asCheckedClosure', function(typedFunction) {
-##     standardGeneric('asCheckedClosure')
-## }, valueClass='function')
+setGeneric('asCheckedClosure', function(typedFunction) {
+    standardGeneric('asCheckedClosure')
+}, valueClass='function')
 
-## ## TODO: make the 'print' of this look prettier -- show the real function body
-## ## somehow, along with type-checking information. use separate class?
-## ## yes! make it say:
-## ## function(a: 'numeric', b: 'character') -> 'character' {
-## ##   # (body of real function goes here)
-## ## }
-## ## also make sure to expand any <S4 object of class "TypedFunction"> etc
+## TODO: make the 'print' of this look prettier -- show the real function body
+## somehow, along with type-checking information. use separate class?
+## yes! make it say:
+## function(a: 'numeric', b: 'character') -> 'character' {
+##   # (body of real function goes here)
+## }
+## also make sure to expand any <S4 object of class "TypedFunction"> etc
 
-## setMethod('asCheckedClosure', signature(
-##     typedFunction='TypedFunction'
-## ), function(typedFunction) {
-##     sig <- typedFunction@signature
-##     inputs <- sig@inputs
-##     retFun <- function(...) {
-##         argValues <- match.call() %>%
-##             getArgumentListOfCall %>%
-##             lapply(function(x) { new('TypedLiteral', value=x) }) %>%
-##             new('UniquelyNamedList', args=.) %>%
-##             as('OrderedBindings') %>% {
-##                 new('TypedInputs', nameSet=.@nameSet, innerEnv=.@innerEnv)
-##             }
-##         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
-##         evaluateNow(call)
-##     }
-##     formals(retFun) <- toEmptyAlist(inputs)
-##     retFun
-## })
+setMethod('asCheckedClosure', signature(
+    typedFunction='TypedFunction'
+), function(typedFunction) {
+    sig <- typedFunction@signature
+    inputs <- sig@inputs
+    retFun <- function(...) {
+        argValues <- match.call() %>%
+            getArgumentListOfCall %>%
+            lapply(function(x) { new('TypedLiteral', value=x) }) %>%
+            new('UniquelyNamedList', args=.) %>%
+            as('OrderedBindings') %>% {
+                new('TypedImmediates', nameSet=.@nameSet, innerEnv=.@innerEnv)
+            }
+        call <- new('ImmediatelyEvaluableTypedCall',
+                    fun=typedFunction, immediates=argValues)
+        evaluateNow(call)
+    }
+    formals(retFun) <- toEmptyAlist(inputs)
+    retFun
+})
 
 
 

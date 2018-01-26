@@ -18,3 +18,10 @@
 
 
 ### wrapper objects
+## TODO: make a pointer to the call from each call used as an input to the first
+## call. instead of just the call, use a (mutable) reference class (RC) which
+## records which inputs have arrived yet and which are still to come -- no need
+## for synchronization because we can do this bit all in a single scheduling
+## thread.
+## TODO: how to actually do scheduling? thread pool? multiprocessing pool?
+## something else???
