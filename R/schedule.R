@@ -1,4 +1,4 @@
-### execute.R -- perform the work described in an execution graph
+### schedule.R -- perform the work described in an execution graph
 ### This file is free software; you can redistribute it and/or modify
 ### it under the terms of the GNU General Public License as published by
 ### the Free Software Foundation; either version 3, or (at your option)
@@ -17,4 +17,4 @@
 
 
 
-### ???
+### wrapper objects

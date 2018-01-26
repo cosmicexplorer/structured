@@ -1,4 +1,4 @@
-### model.R -- create a dynamic representation of typechecked execution
+### defs.R -- create a dynamic representation of typechecked execution
 ### This file is free software; you can redistribute it and/or modify
 ### it under the terms of the GNU General Public License as published by
 ### the Free Software Foundation; either version 3, or (at your option)
@@ -21,19 +21,20 @@
 ### types and values
 
 validateTypeNameString <- function(s) {
-    if (!(is.character(s) &&
-          (length(s) == 1) &&
-          isTRUE(s != '') &&
-          isTRUE(!is.na(s)))) {
+    if (is.character(s) &&
+        (length(s) == 1) &&
+        isTRUE(s != '') &&
+        isTRUE(!is.na(s))) {
+        s
+    } else {
         stop(sprintf("'%s' is not a valid name string", s))
     }
-    s
 }
 
 setClass('Type', slots=c(name='character'))
-setMethod('initialize', 'Type', function(.Object, ...) {
+setMethod('initialize', 'Type', function(.Object, name, ...) {
     .Object <- callNextMethod(.Object, ...)
-    .Object@name <- validateTypeNameString(.Object@name)
+    .Object@name <- validateTypeNameString(name)
     .Object
 })
 
@@ -76,49 +77,6 @@ setMethod('initialize', 'TypedLiteral', function(.Object, value, ...) {
     .Object <- callNextMethod(.Object, type=objectType, ...)
     .Object@value <- value
     .Object
-})
-
-setClass('TypedOption', contains='TypedPromise', slots=c(
-    hasValue='logical',
-    value='ANY'
-))
-setMethod('initialize', 'TypedOption', function(.Object, hasValue, value, ...) {
-    .Object <- callNextMethod(.Object, ...)
-    if (!hasValue && !is.null(value)) {
-        stop(sprintf(paste(
-            "a TypedOption with hasValue = FALSE must have value = NULL,",
-            "but its value was '%s'"),
-            value))
-    }
-    .Object@hasValue <- hasValue
-    .Object@value <- value
-    .Object
-})
-
-setGeneric('makeOption', function(value, type) {
-    standardGeneric('makeOption')
-}, valueClass='TypedOption')
-
-setMethod('makeOption', signature(
-    value='ANY',
-    type='missing'
-), function(value) {
-    value %>%
-        class %>%
-        new('Type', name=.) %>%
-        makeOption(value, type=.)
-})
-
-setMethod('makeOption', signature(
-    value='ANY',
-    type='Type'
-), function(value, type) {
-    if (is.null(value)) {
-        new('TypedOption', type=type, hasValue=FALSE, value=NULL)
-    } else {
-        value <- checkType(type, value)
-        new('TypedOption', type=type, hasValue=TRUE, value=value)
-    }
 })
 
 
@@ -303,8 +261,8 @@ setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
     .Object
 })
 
-setClass('TypedEnvironment', contains='OrderedBindings')
-setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
+setClass('TypedInputs', contains='OrderedBindings')
+setMethod('initialize', 'TypedInputs', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
     untypedEntryNames <- .Object %>% namedIterate(function(pair) {
         if (is(pair@value, 'TypedPromise')) {
@@ -314,22 +272,39 @@ setMethod('initialize', 'TypedEnvironment', function(.Object, ...) {
         }
     }) %>% unlistFilter
     stopCollectingStrings(
-        outerFmt=paste(
-            "entries in TypedEnvironment should all be",
-            "(instances of) subclasses of TypedPromise.",
-            "invalid entries: %s"),
+        outerFmt=paste("entries in TypedEnvironment should all be",
+                       "(instances of) subclasses of TypedPromise.",
+                       "invalid entries: %s"),
         strs=untypedEntryNames)
+    .Object
+})
+
+setClass('TypedImmediates', contains='TypedInputs')
+setMethod('initialize', 'TypedImmediates', function(.Object, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    nonLiteralEntryNames <- .Object %>% namedIterate(function(pair) {
+        if (is(pair@value, 'TypedLiteral')) {
+            NULL
+        } else {
+            pair@name
+        }
+    }) %>% unlistFilter
+    stopCollectingStrings(
+        outerFmt=paste("entries in TypedImmediates should all be",
+                       "(instances of) subclasses of TypedLiteral.",
+                       "invalid entries: %s"),
+        strs=nonLiteralEntryNames)
     .Object
 })
 
 setGeneric('checkTypedArgs', function(argTypes, argPromises) {
     standardGeneric('checkTypedArgs')
-}, valueClass='TypedEnvironment')
+}, valueClass='TypedInputs')
 
 ## NOTE: checks types in order of declared types, not invoked values
 setMethod('checkTypedArgs', signature(
     argTypes='TypeRequirements',
-    argPromises='TypedEnvironment'
+    argPromises='TypedInputs'
 ), function(argTypes, argPromises) {
     declaredNames <- argTypes@nameSet
     givenNames <- argPromises@nameSet
@@ -412,7 +387,7 @@ setMethod('makeTypedFunction', signature(
     signature='FunctionSignature',
     body='function'
 ), function(signature, body) {
-    new('TypedFunction', signature=signature, body=body)
+    new('TypedFunction', signature=signature, f=body)
 })
 
 setMethod('makeTypedFunction', signature(
@@ -424,57 +399,84 @@ setMethod('makeTypedFunction', signature(
 
 setClass('TypedCall', contains='TypedPromise', slots=c(
     fun='TypedFunction',
-    argValues='TypedEnvironment'
+    argPromises='TypedInputs'
 ))
-setMethod('initialize', 'TypedCall', function(.Object, fun, argValues, ...) {
+setMethod('initialize', 'TypedCall', function(.Object, fun, argPromises, ...) {
     sig <- fun@signature
     resultType <- sig@output
     .Object <- callNextMethod(.Object, type=resultType, ...)
-    .Object@argValues <- sig@inputs %>%
-        checkTypedArgs(argTypes=., argPromises=argValues)
+    .Object@argPromises <- sig@inputs %>%
+        checkTypedArgs(argTypes=., argPromises=argPromises)
     .Object@fun <- fun
     .Object
 })
 
-setGeneric('evaluateNow', function(typedCall, inEnv) {
-    standardGeneric('evaluateNow')
+setClass('ImmediatelyEvaluableTypedCall', contains='TypedCall', slots=c(
+    immediates='TypedImmediates'
+))
+setMethod('initialize', 'ImmediatelyEvaluableTypedCall', function(.Object, immediates, ...) {
+    .Object <- callNextMethod(.Object, argPromises=immediates, ...)
+    .Object@immediates <- immediates
+    .Object
 })
 
-setMethod('evaluateNow', signature(
-    typedCall='TypedCall',
-    inEnv='environment'
-), function(typedCall, inEnv) {
-    fun <- typedCall@fun
-    sig <- fun@signature
-    argValues <- typedCall@argValues
-    nonLiteralArgs <- argValues %>% namedIterate(function(pair) {
-        if(is(pair@value, 'TypedLiteral')) {
-            NULL
-        } else {
-            pair@name
-        }
-    }) %>% unlistFilter
-    stopCollectingStrings(
-        outerFmt=paste("for evaluateNow, all arguments provided to TypedCall",
-                       "should be instances of TypedLiteral.",
-                       "non-literal arguments were: %s"),
-        strs=nonLiteralArgs
-    )
-    argsNamedList <- argValues %>%
-        as('UniquelyNamedList') %>%
-        .@args %>%
-        lapply(function(x) { x@value })
-    result <- do.call(fun@f, argsNamedList, envir=inEnv)
-    output <- sig@output
-    checkType(sig@output, result)
+setGeneric('makeTypedCall', function(lhs, rhs) {
+    standardGeneric('makeTypedCall')
+}, valueClass='TypedCall')
+
+setMethod('makeTypedCall', signature(
+    lhs='TypedInputs',
+    rhs='TypedFunction'
+), function(lhs, rhs) {
+    new('TypedCall', fun=rhs, argPromises=lhs)
 })
 
-setMethod('evaluateNow', signature(
-    typedCall='TypedCall',
-    inEnv='missing'
-), function(typedCall) {
-    evaluateNow(typedCall, environment())
+setMethod('makeTypedCall', signature(
+    lhs='TypedImmediates',
+    rhs='TypedFunction'
+), function(lhs, rhs) {
+    new('ImmediatelyEvaluableTypedCall', fun=rhs, immediates=lhs)
 })
+
+## setGeneric('evaluateNow', function(typedCall, inEnv) {
+##     standardGeneric('evaluateNow')
+## })
+
+## setMethod('evaluateNow', signature(
+##     typedCall='TypedCall',
+##     inEnv='environment'
+## ), function(typedCall, inEnv) {
+##     fun <- typedCall@fun
+##     sig <- fun@signature
+##     argValues <- typedCall@argValues
+##     nonLiteralArgs <- argValues %>% namedIterate(function(pair) {
+##         if(is(pair@value, 'TypedLiteral')) {
+##             NULL
+##         } else {
+##             pair@name
+##         }
+##     }) %>% unlistFilter
+##     stopCollectingStrings(
+##         outerFmt=paste("for evaluateNow, all arguments provided to TypedCall",
+##                        "should be instances of TypedLiteral.",
+##                        "non-literal arguments were: %s"),
+##         strs=nonLiteralArgs
+##     )
+##     argsNamedList <- argValues %>%
+##         as('UniquelyNamedList') %>%
+##         .@args %>%
+##         lapply(function(x) { x@value })
+##     result <- do.call(fun@f, argsNamedList, envir=inEnv)
+##     output <- sig@output
+##     checkType(sig@output, result)
+## })
+
+## setMethod('evaluateNow', signature(
+##     typedCall='TypedCall',
+##     inEnv='missing'
+## ), function(typedCall) {
+##     evaluateNow(typedCall, environment())
+## })
 
 makeEmptyAlistFromNames <- function(names) {
     if (!is.character(names) ||
@@ -510,37 +512,37 @@ getArgumentListOfCall <- function(arg) {
     arg %>% as.list %>% .[-1]
 }
 
-setGeneric('asCheckedClosure', function(typedFunction) {
-    standardGeneric('asCheckedClosure')
-}, valueClass='function')
+## setGeneric('asCheckedClosure', function(typedFunction) {
+##     standardGeneric('asCheckedClosure')
+## }, valueClass='function')
 
-## TODO: make the 'print' of this look prettier -- show the real function body
-## somehow, along with type-checking information. use separate class?
-## yes! make it say:
-## function(a: 'numeric', b: 'character') -> 'character' {
-##   # (body of real function goes here)
-## }
-## also make sure to expand any <S4 object of class "TypedFunction"> etc
+## ## TODO: make the 'print' of this look prettier -- show the real function body
+## ## somehow, along with type-checking information. use separate class?
+## ## yes! make it say:
+## ## function(a: 'numeric', b: 'character') -> 'character' {
+## ##   # (body of real function goes here)
+## ## }
+## ## also make sure to expand any <S4 object of class "TypedFunction"> etc
 
-setMethod('asCheckedClosure', signature(
-    typedFunction='TypedFunction'
-), function(typedFunction) {
-    sig <- typedFunction@signature
-    inputs <- sig@inputs
-    retFun <- function(...) {
-        argValues <- match.call() %>%
-            getArgumentListOfCall %>%
-            lapply(function(x) { new('TypedLiteral', value=x) }) %>%
-            new('UniquelyNamedList', args=.) %>%
-            as('OrderedBindings') %>% {
-                new('TypedEnvironment', nameSet=.@nameSet, innerEnv=.@innerEnv)
-            }
-        call <- new('TypedCall', fun=typedFunction, argValues=argValues)
-        evaluateNow(call)
-    }
-    formals(retFun) <- toEmptyAlist(inputs)
-    retFun
-})
+## setMethod('asCheckedClosure', signature(
+##     typedFunction='TypedFunction'
+## ), function(typedFunction) {
+##     sig <- typedFunction@signature
+##     inputs <- sig@inputs
+##     retFun <- function(...) {
+##         argValues <- match.call() %>%
+##             getArgumentListOfCall %>%
+##             lapply(function(x) { new('TypedLiteral', value=x) }) %>%
+##             new('UniquelyNamedList', args=.) %>%
+##             as('OrderedBindings') %>% {
+##                 new('TypedInputs', nameSet=.@nameSet, innerEnv=.@innerEnv)
+##             }
+##         call <- new('TypedCall', fun=typedFunction, argValues=argValues)
+##         evaluateNow(call)
+##     }
+##     formals(retFun) <- toEmptyAlist(inputs)
+##     retFun
+## })
 
 
 
@@ -567,18 +569,21 @@ params <- function(...) {
         do.call(reqs, args=.)
 }
 
-link <- function(...) {
+inputs <- function(...) {
     list(...) %>%
         new('UniquelyNamedList', args=.) %>%
         as('OrderedBindings') %>% {
-            new('TypedEnvironment', nameSet=.@nameSet, innerEnv=.@innerEnv)
+            new('TypedInputs', nameSet=.@nameSet, innerEnv=.@innerEnv)
         }
 }
 
 literals <- function(...) {
     list(...) %>%
         lapply(function(x) { new('TypedLiteral', value=x) }) %>%
-        do.call(link, args=.)
+        new('UniquelyNamedList', args=.) %>%
+        as('OrderedBindings') %>% {
+            new('TypedImmediates', nameSet=.@nameSet, innerEnv=.@innerEnv)
+        }
 }
 
 body <- function(bracedExpr) {
@@ -600,5 +605,5 @@ body <- function(bracedExpr) {
 }
 
 `%=>%` <- function(lhs, rhs) {
-    new('TypedCall', fun=rhs, argValues=lhs)
+    makeTypedCall(lhs, rhs)
 }
