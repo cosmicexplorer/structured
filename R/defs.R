@@ -31,6 +31,7 @@ validateTypeNameString <- function(s) {
     }
 }
 
+#' @export
 setClass('Type', slots=c(name='character'))
 setMethod('initialize', 'Type', function(.Object, name, ...) {
     .Object <- callNextMethod(.Object, ...)
@@ -38,10 +39,12 @@ setMethod('initialize', 'Type', function(.Object, name, ...) {
     .Object
 })
 
+#' @export
 setGeneric('isType', function(type, object) {
     standardGeneric('isType')
 }, valueClass='logical')
 
+#' @export
 setMethod('isType', signature(
     type='Type',
     object='ANY'
@@ -49,7 +52,8 @@ setMethod('isType', signature(
     is(object, type@name)
 })
 
-checkType <- function (type, object) {
+#' @export
+checkType <- function(type, object) {
     if (!isType(type, object)) {
         stop(sprintf("type: '%s' check failed for result: '%s'",
                      type@name, object))
@@ -68,11 +72,22 @@ setMethod('extendsType', signature(
     extends(sub@name, super@name)
 })
 
+#' @export
+checkExtendsType <- function(super, sub) {
+    if (!extendsType(super, sub)) {
+        stop(sprintf("subtype: '%s' does not extend supertype: '%s'",
+                     sub@name, super@name))
+    }
+    sub
+}
+
+#' @export
 setClass('TypedPromise', slots=c(type='Type'))
 
-## gets the type of the argument with `class`
+#' @export
 setClass('TypedLiteral', contains='TypedPromise', slots=c(value='ANY'))
 setMethod('initialize', 'TypedLiteral', function(.Object, value, ...) {
+    ## gets the type of the argument with `class`
     objectType <- new('Type', name=class(value))
     .Object <- callNextMethod(.Object, type=objectType, ...)
     .Object@value <- value
@@ -83,20 +98,25 @@ setMethod('initialize', 'TypedLiteral', function(.Object, value, ...) {
 
 ### environments
 
-setClass('NameSet', slots=c(names='character'))
-setMethod('initialize', 'NameSet', function(.Object, ...) {
-    .Object <- callNextMethod(.Object, ...)
-    nm <- .Object@names
-    if (length(nm) <= 0) {
-        stop("a NameSet should have at least one name")
-    }
+validateArgNames <- function(nm) {
     if (any(nm == '') ||
         any(is.na(nm)) ||
         anyDuplicated(nm)) {
-        stop(sprintf(paste("names in a NameSet should be nonempty, non-NA,",
-                           "and unique: %s"),
+        stop(sprintf(paste("argument names should be nonempty and non-NA.",
+                           "invalid argument names: %s"),
                      formatCharVector(nm)))
     }
+    nm
+}
+
+#' @export
+setClass('NameSet', slots=c(names='character'))
+setMethod('initialize', 'NameSet', function(.Object, nm, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    if (length(nm) <= 0) {
+        stop("a NameSet should have at least one name")
+    }
+    .Object@names <- validateArgNames(nm)
     .Object
 })
 
@@ -114,6 +134,7 @@ stopCollectingStrings <- function(outerFmt, strs, ...) {
     }
 }
 
+#' @export
 setClass('OrderedBindings', slots=c(
     nameSet='NameSet',
     innerEnv='environment'))
@@ -130,6 +151,7 @@ setMethod('initialize', 'OrderedBindings', function(.Object, nameSet, innerEnv, 
     .Object
 })
 
+#' @export
 setClass('NamedValue', slots=c(
     name='character',
     value='ANY'
@@ -243,6 +265,7 @@ unlistFilter <- function(listArg, pred=is.null) {
         unlist
 }
 
+#' @export
 setClass('TypeRequirements', contains='OrderedBindings')
 setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
@@ -261,6 +284,7 @@ setMethod('initialize', 'TypeRequirements', function(.Object, ...) {
     .Object
 })
 
+#' @export
 setClass('TypedInputs', contains='OrderedBindings')
 setMethod('initialize', 'TypedInputs', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
@@ -279,6 +303,25 @@ setMethod('initialize', 'TypedInputs', function(.Object, ...) {
     .Object
 })
 
+setGeneric('getTypeOfArg', function(env, argName) {
+    standardGeneric('getTypeOfArg')
+}, valueClass='Type')
+
+setMethod('getTypeOfArg', signature(
+    env='TypeRequirements',
+    argName='character'
+), function(env, argName) {
+    getEnv(env, argName)@value
+})
+
+setMethod('getTypeOfArg', signature(
+    env='TypedInputs',
+    argName='character'
+), function(env, argName) {
+    getEnv(env, argName)@value@type
+})
+
+#' @export
 setClass('TypedImmediates', contains='TypedInputs')
 setMethod('initialize', 'TypedImmediates', function(.Object, ...) {
     .Object <- callNextMethod(.Object, ...)
@@ -333,6 +376,7 @@ setMethod('checkTypedArgs', signature(
     argPromises
 })
 
+#' @export
 setClass('FunctionSignature', slots=c(
     inputs='TypeRequirements',
     output='Type'
@@ -357,10 +401,31 @@ setMethod('makeSignature', signature(
     makeSignature(lhs, forType)
 })
 
+setGeneric('validateRemainingArgs', function(typeSignature, remainingArgs) {
+    standardGeneric('validateRemainingArgs')
+}, valueClass='TypeRequirements')
+
+setMethod('validateRemainingArgs', signature(
+    typeSignature='FunctionSignature',
+    remainingArgs='TypeRequirements'
+), function(typeSignature, remainingArgs) {
+    remainingNames <- remainingArgs@nameSet %>% .@names
+    allArgNames <- typeSignature@inputs %>% .@nameSet %>% .@names
+    extraNames <- setdiff(remainingArgs, allArgNames)
+    if (length(extraNames) > 0) {
+        stop(sprintf(paste("there are more remaining arguments: %s",
+                           "than expected arguments: %s.",
+                           "extra arguments: %s."),
+                     remainingNames, allArgNames, extraNames))
+    }
+    remainingArgs
+})
+
 
 
 ### execute code with checked types
 
+#' @export
 setClass('TypedFunction', slots=c(
     signature='FunctionSignature',
     f='function'
@@ -397,6 +462,7 @@ setMethod('makeTypedFunction', signature(
     makeTypedFunction(signature, new('FunctionBody', bracedBody=body))
 })
 
+#' @export
 setClass('TypedCall', contains='TypedPromise', slots=c(
     fun='TypedFunction',
     argPromises='TypedInputs'
@@ -411,6 +477,7 @@ setMethod('initialize', 'TypedCall', function(.Object, fun, argPromises, ...) {
     .Object
 })
 
+#' @export
 setClass('ImmediatelyEvaluableTypedCall', contains='TypedCall', slots=c(
     immediates='TypedImmediates'
 ))
@@ -438,10 +505,12 @@ setMethod('makeTypedCall', signature(
     new('ImmediatelyEvaluableTypedCall', fun=rhs, immediates=lhs)
 })
 
+#' @export
 setGeneric('evaluateNow', function(invocation, inEnv) {
     standardGeneric('evaluateNow')
 })
 
+#' @export
 setMethod('evaluateNow', signature(
     invocation='ImmediatelyEvaluableTypedCall',
     inEnv='environment'
@@ -458,6 +527,7 @@ setMethod('evaluateNow', signature(
     checkType(sig@output, result)
 })
 
+#' @export
 setMethod('evaluateNow', signature(
     invocation='ImmediatelyEvaluableTypedCall',
     inEnv='missing'
@@ -499,6 +569,7 @@ getArgumentListOfCall <- function(arg) {
     arg %>% as.list %>% .[-1]
 }
 
+#' @export
 setGeneric('asCheckedClosure', function(typedFunction) {
     standardGeneric('asCheckedClosure')
 }, valueClass='function')
@@ -511,6 +582,7 @@ setGeneric('asCheckedClosure', function(typedFunction) {
 ## }
 ## also make sure to expand any <S4 object of class "TypedFunction"> etc
 
+#' @export
 setMethod('asCheckedClosure', signature(
     typedFunction='TypedFunction'
 ), function(typedFunction) {
@@ -535,14 +607,18 @@ setMethod('asCheckedClosure', signature(
 
 
 ### wrappers, operators, and macros
+
+#' @export
 type <- function(name) {
     new('Type', name=name)
 }
 
+#' @export
 lit <- function(x) {
     new('TypedLiteral', value=x)
 }
 
+#' @export
 reqs <- function(...) {
     list(...) %>%
         new('UniquelyNamedList', args=.) %>%
@@ -551,12 +627,14 @@ reqs <- function(...) {
         }
 }
 
+#' @export
 params <- function(...) {
     list(...) %>%
         lapply(function(x) { new('Type', name=x) }) %>%
         do.call(reqs, args=.)
 }
 
+#' @export
 inputs <- function(...) {
     list(...) %>%
         new('UniquelyNamedList', args=.) %>%
@@ -565,6 +643,7 @@ inputs <- function(...) {
         }
 }
 
+#' @export
 literals <- function(...) {
     list(...) %>%
         lapply(function(x) { new('TypedLiteral', value=x) }) %>%
@@ -574,14 +653,17 @@ literals <- function(...) {
         }
 }
 
+#' @export
 body <- function(bracedExpr) {
     substitute(bracedExpr)
 }
 
+#' @export
 `%->%` <- function(lhs, rhs) {
     makeSignature(lhs, rhs)
 }
 
+#' @export
 `%:%` <- function(lhs, rhs) {
     rhsSub <- substitute(rhs)
     ## allow bare curly braces to be interpreted as function bodies
@@ -592,6 +674,7 @@ body <- function(bracedExpr) {
     }
 }
 
+#' @export
 `%=>%` <- function(lhs, rhs) {
     makeTypedCall(lhs, rhs)
 }

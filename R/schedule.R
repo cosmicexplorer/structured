@@ -25,3 +25,29 @@
 ## thread.
 ## TODO: how to actually do scheduling? thread pool? multiprocessing pool?
 ## something else???
+
+setClass('InputArgument', contains='TypedLiteral', slots=c(
+    argName='character'
+))
+setMethod('initialize', 'InputArgument', function(.Object, argName, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    if (length(argName) != 1) {
+        stop(paste("a single InputArgument should be a character vector",
+                   "of size 1. invalid InputArgument: %s"),
+             formatCharVector(argName))
+    }
+    .Object@argName <- validateArgNames(argName)
+    .Object
+})
+
+setClass('CallWrapper', contains='TypedFunction', slots=c(
+    remaining='TypeRequirements'
+))
+setMethod('initialize', 'CallWrapper', function(.Object, remaining, ...) {
+    .Object <- callNextMethod(.Object, ...)
+    .Object@remaining <- validateRemainingArgs(.Object@signature, remaining)
+    .Object
+})
+
+## TODO: whittle the CallWrapper down to nothing, then when all its args are
+## filled, schedule it with its fingerprint and destination!
