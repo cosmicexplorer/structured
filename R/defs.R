@@ -111,12 +111,12 @@ validateArgNames <- function(nm) {
 
 #' @export
 setClass('NameSet', slots=c(names='character'))
-setMethod('initialize', 'NameSet', function(.Object, nm, ...) {
+setMethod('initialize', 'NameSet', function(.Object, names, ...) {
     .Object <- callNextMethod(.Object, ...)
-    if (length(nm) <= 0) {
+    if (length(names) <= 0) {
         stop("a NameSet should have at least one name")
     }
-    .Object@names <- validateArgNames(nm)
+    .Object@names <- validateArgNames(names)
     .Object
 })
 
@@ -139,13 +139,13 @@ setClass('OrderedBindings', slots=c(
     nameSet='NameSet',
     innerEnv='environment'))
 setMethod('initialize', 'OrderedBindings', function(.Object, nameSet, innerEnv, ...) {
-    .Object <- callNextMethod(.Object, ...)
     envNames <- names(innerEnv)
     remainingNames <- setdiff(nameSet@names, envNames)
     stopCollectingStrings(
         outerFmt=paste("some names in the NameSet are not in the environment.",
                        "missing: %s"),
         strs=remainingNames)
+    .Object <- callNextMethod(.Object, ...)
     .Object@nameSet <- nameSet
     .Object@innerEnv <- innerEnv
     .Object
@@ -399,26 +399,6 @@ setMethod('makeSignature', signature(
 ), function(lhs, rhs) {
     forType <- new('Type', name=rhs)
     makeSignature(lhs, forType)
-})
-
-setGeneric('validateRemainingArgs', function(typeSignature, remainingArgs) {
-    standardGeneric('validateRemainingArgs')
-}, valueClass='TypeRequirements')
-
-setMethod('validateRemainingArgs', signature(
-    typeSignature='FunctionSignature',
-    remainingArgs='TypeRequirements'
-), function(typeSignature, remainingArgs) {
-    remainingNames <- remainingArgs@nameSet %>% .@names
-    allArgNames <- typeSignature@inputs %>% .@nameSet %>% .@names
-    extraNames <- setdiff(remainingArgs, allArgNames)
-    if (length(extraNames) > 0) {
-        stop(sprintf(paste("there are more remaining arguments: %s",
-                           "than expected arguments: %s.",
-                           "extra arguments: %s."),
-                     remainingNames, allArgNames, extraNames))
-    }
-    remainingArgs
 })
 
 

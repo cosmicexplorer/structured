@@ -40,14 +40,36 @@ setMethod('initialize', 'InputArgument', function(.Object, argName, ...) {
     .Object
 })
 
-setClass('CallWrapper', contains='TypedFunction', slots=c(
-    remaining='TypeRequirements'
+CallWrapper <- setRefClass('CallWrapper', fields=list(
+    fun='TypedFunction',
+    immediates='list'
+), methods=list(
+    initialize=function(f) {
+        checkType(type('TypedFunction'), f)
+        fun <<- f
+        immediates <<- list()
+    },
+    ## TODO: make an accept() which accepts a scheduling context!
+    accept=function(arg) {
+        checkType(type('InputArgument'), arg)
+        name <- arg@argName
+        argRealType <- arg@type
+        sig <- fun@signature
+        argInputType <- getTypeOfArg(sig@inputs, arg@argName)
+        checkExtendsType(argInputType, argRealType)
+        if (length(immediates) > 0) {
+            curNames <- names(immediates)
+            validateArgNames(curNames)
+            if (name %in% curNames) {
+                stop(sprintf(paste("argument with name: '%s' and type: '%s'",
+                                   "was already accepted. accepted args: %s"),
+                             name, argRealType@name, formatCharVector(curNames)))
+            }
+        }
+        newImmediates <- immediates
+        newImmediates[[name]] <- arg
+        immediates <<- newImmediates
+    }
 ))
-setMethod('initialize', 'CallWrapper', function(.Object, remaining, ...) {
-    .Object <- callNextMethod(.Object, ...)
-    .Object@remaining <- validateRemainingArgs(.Object@signature, remaining)
-    .Object
-})
 
-## TODO: whittle the CallWrapper down to nothing, then when all its args are
-## filled, schedule it with its fingerprint and destination!
+## TODO: schedule calls with their destinations!
