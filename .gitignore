@@ -3,3 +3,4 @@
 /.pants.d/
 /.pants.workdir.file_lock
 *.pyc
+/.pants.workdir.file_lock.lock_message

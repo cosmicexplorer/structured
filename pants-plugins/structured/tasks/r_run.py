@@ -39,5 +39,4 @@ class RRun(RTask):
     if exit_code != 0:
       raise TaskError(
         '{} ... exited non-zero ({}).'.format(' '.join(cmd), exit_code),
-        exit_code=exit_code,
-      )
+        exit_code=exit_code)

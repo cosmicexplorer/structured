@@ -38,7 +38,6 @@ class RDistribution(object):
       options = self.get_options()
       return RDistribution(
         binary_util=binary_util,
-        supportdir=options.supportdir,
         version=options.version,
       )
 
@@ -62,6 +61,6 @@ class RDistribution(object):
   @memoized_method
   def install_r(self):
     r_dist_path = self.unpack_distribution(
-      supportdir='bin/R', version=self.version, filename='r.tar.gz')
+      supportdir='bin/R', version=self.version, output_filename='r.tar.gz')
     r_bin_path = os.path.join(r_dist_path, 'R')
     return r_bin_path
