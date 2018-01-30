@@ -1,2 +1,5 @@
 .Rhistory
 .RData
+/.pants.d/
+/.pants.workdir.file_lock
+*.pyc
