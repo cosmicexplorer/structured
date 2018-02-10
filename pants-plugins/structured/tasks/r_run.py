@@ -5,6 +5,7 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import os
 
+from pants.base.exceptions import TaskError
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
 
 from structured.targets.r_binary import RBinary
@@ -29,15 +30,19 @@ class RRun(RTask):
 
     argv = self.get_options().args + self.get_passthru_args()
     r_cmd = [
-      self.r_binary(),
+      self.r_distribution.rscript_binary,
       binary_target.script,
     ] + argv
     env_path = ['PATH', os.environ.get('PATH')]
-    req = ExecuteProcessRequest(r_cmd, env_path)
+    req = ExecuteProcessRequest(tuple(r_cmd), env_path)
     execute_process_result, = self.context._scheduler.product_request(
       ExecuteProcessResult, [req])
     exit_code = execute_process_result.exit_code
     if exit_code != 0:
       raise TaskError(
-        '{} ... exited non-zero ({}).'.format(' '.join(cmd), exit_code),
+        '{} ... exited non-zero ({}).\n-----stdout:\n{}\n-----\nstderr:\n'
+        .format(' '.join(r_cmd),
+                exit_code,
+                execute_process_result.stdout,
+                execute_process_result.stderr),
         exit_code=exit_code)

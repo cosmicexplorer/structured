@@ -4,7 +4,7 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
                         unicode_literals, with_statement)
 
 from pants.task.task import Task
-from pants.util.memo import memoized_method
+from pants.util.memo import memoized_property
 
 from structured.subsystems.r_distribution import RDistribution
 
@@ -12,12 +12,10 @@ class RTask(Task):
 
   @classmethod
   def subsystem_dependencies(cls):
-    return super(RTask, cls).subsystem_dependencies() + (RDistribution.Factory,)
+    return super(RTask, cls).subsystem_dependencies() + (
+      RDistribution.Factory.scoped(cls),
+    )
 
-  @memoized_method
+  @memoized_property
   def r_distribution(self):
-    return RDistribution.Factory.global_instance().create()
-
-  @memoized_method
-  def r_binary(self):
-    return self.r_distribution().install_r()
+    return RDistribution.Factory.scoped_instance(self).create()

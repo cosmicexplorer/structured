@@ -54,7 +54,7 @@ class RDistribution(object):
     tarball_filepath = self._binary_util.select_binary(
       supportdir=supportdir, version=version, name=output_filename)
     logger.debug('Tarball for %s(%s): %s', supportdir, version, tarball_filepath)
-    work_dir = os.path.join(os.path.dirname(tarball_filepath), 'out')
+    work_dir = os.path.join(os.path.dirname(tarball_filepath), 'unpacked')
     TGZ.extract(tarball_filepath, work_dir, concurrency_safe=True)
     return work_dir
 
@@ -62,5 +62,16 @@ class RDistribution(object):
   def install_r(self):
     r_dist_path = self.unpack_distribution(
       supportdir='bin/R', version=self.version, output_filename='r.tar.gz')
-    r_bin_path = os.path.join(r_dist_path, 'R')
-    return r_bin_path
+    return r_dist_path
+
+  @memoized_property
+  def r_bin_dir(self):
+    return os.path.join(self.install_r(), 'bin')
+
+  @memoized_property
+  def r_binary(self):
+    return os.path.join(self.r_bin_dir, 'R')
+
+  @memoized_property
+  def rscript_binary(self):
+    return os.path.join(self.r_bin_dir, 'Rscript')
