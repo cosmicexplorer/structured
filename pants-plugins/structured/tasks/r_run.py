@@ -28,11 +28,11 @@ class RRun(RTask):
     if not isinstance(binary_target, RBinary):
       return
 
-    argv = self.get_options().args + self.get_passthru_args()
+    script_args = self.get_options().args + self.get_passthru_args()
     r_cmd = [
       self.r_distribution.rscript_binary,
       binary_target.script,
-    ] + argv
+    ] + script_args
     env_path = ['PATH', os.environ.get('PATH')]
     req = ExecuteProcessRequest(tuple(r_cmd), env_path)
     execute_process_result, = self.context._scheduler.product_request(
