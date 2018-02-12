@@ -5,6 +5,7 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 
 import logging
 import os
+import re
 
 from pants.base.exceptions import TaskError
 from pants.binaries.binary_util import BinaryUtil
@@ -13,18 +14,38 @@ from pants.fs.archive import TGZ
 from pants.subsystem.subsystem import Subsystem
 from pants.util.contextutil import temporary_file_path
 from pants.util.memo import memoized_method, memoized_property
+from pants.util.meta import AbstractClass
+from pants.util.objects import datatype
 
-from structured.subsystems.cran import CRAN
-from structured.subsystems.github import Github
 from structured.util.boilerplate import R_INSTALL_PACKAGE_BOILERPLATE
 
 
 logger = logging.getLogger(__name__)
 
 
+class RDependency(AbstractClass):
+  """???"""
+
+
+class WrappedDependency(datatype('WrappedDependency', ['dep', 'force'])):
+  """???"""
+
+  def __new__(cls, dep, force):
+    if not isinstance(dep, RDependency):
+      raise BootstrapError(
+        "argument dep='{}' must be an instance of 'RDependency'"
+        .format(repr(dep)))
+    if not isinstance(force, bool):
+      raise BootstrapError(
+        "argument force='{}' must be a bool".format(repr(force)))
+    return super(WrappedDependency, cls).__new__(cls, dep, force)
+
+
 class RDistribution(object):
 
   DEVTOOLS_CRAN_NAME = 'devtools'
+  DEVTOOLS_GITHUB_ORG_NAME = 'hadley'
+  DEVTOOLS_GITHUB_REPO_NAME = 'devtools'
 
   MODULES_GITHUB_ORG_NAME = 'klmr'
   MODULES_GITHUB_REPO_NAME = 'modules'
@@ -46,9 +67,13 @@ class RDistribution(object):
                     'lookup the distribution with --binary-util-baseurls and '
                     '--pants-bootstrapdir.',
                default='3.4.3')
+      register('--devtools-git-ref', fingerprint=True,
+               help='git ref of the hadley/devtools repo to use for the '
+                    'devtools package for R development.',
+               default='ec2858b125e69ce95b415fdbb5d3c3e950f4ca9a')
       register('--modules-git-ref', fingerprint=True,
                help='git ref of the klmr/modules repo to use for R modules.',
-               default='940b694027e78f2e98d3f605e5623afcc0113a3c')
+               default='d4199f2d216c6d20c3b092c691d3099c3325f2a3')
       register('--tools-cache-dir', advanced=True, metavar='<dir>',
                default=None,
                help='The parent directory for downloaded R tools. '
@@ -89,6 +114,7 @@ class RDistribution(object):
       return RDistribution(
         binary_util,
         r_version=options.r_version,
+        devtools_git_ref=options.devtools_git_ref,
         modules_git_ref=options.modules_git_ref,
         tools_cache_dir=tools_cache_dir,
         resolver_cache_dir=resolver_cache_dir,
@@ -96,10 +122,12 @@ class RDistribution(object):
         chroot_cache_dir=chroot_cache_dir,
       )
 
-  def __init__(self, binary_util, r_version, modules_git_ref, tools_cache_dir,
-               resolver_cache_dir, artifact_cache_dir, chroot_cache_dir):
+  def __init__(self, binary_util, r_version, devtools_git_ref, modules_git_ref,
+               tools_cache_dir, resolver_cache_dir, artifact_cache_dir,
+               chroot_cache_dir):
     self._binary_util = binary_util
     self._r_version = r_version
+    self.devtools_git_ref = devtools_git_ref
     self.modules_git_ref = modules_git_ref
     self.tools_cache_dir = tools_cache_dir
     self.resolver_cache_dir = resolver_cache_dir
@@ -155,12 +183,50 @@ class RDistribution(object):
           exit_code=exit_code)
       return execute_process_result.stdout
 
+  class PackageInfoFormatError(Exception):
+    """???"""
+
+  BLANK_LINE_REGEX = re.compile('^\s*$')
+
+  @classmethod
+  def is_valid_package_name(cls, name):
+    return cls.BLANK_LINE_REGEX.match(name) is None
+
+  @classmethod
+  def check_valid_package_name(cls, name):
+    if not cls.is_valid_package_name(name):
+      raise PackageInfoFormatError(
+        "'{}' is not a valid package name (must not be blank)".format(name))
+    return name
+
+  @classmethod
+  def filter_packages_lines_stdout(cls, lines):
+    return [p for p in lines if cls.is_valid_package_name(p)]
+
+  VALID_VERSION_REGEX = re.compile('^[0-9]+(\.[0-9]+)*$')
+
+  @classmethod
+  def is_valid_version(cls, version):
+    if version is None:
+      return True
+    return cls.VALID_VERSION_REGEX.match(version) is not None
+
+  @classmethod
+  def check_valid_version(cls, version):
+    if not cls.is_valid_version(version):
+      raise PackageInfoFormatError(
+        "'{}' is not a valid package version "
+        "(must be 'None' or match '{}')"
+        .format(version, cls.VALID_VERSION_REGEX.pattern))
+    return version
+
   def get_installed_packages(self, context, pkg_cache_dir):
     installed_packages_input = R_INSTALL_PACKAGE_BOILERPLATE.format(
       expr="cat('listing installed packages...', sep='\\n')",
       outdir=pkg_cache_dir,
     )
-    return self.invoke_rscript(context, installed_packages_input).split('\n')
+    pkgs = self.invoke_rscript(context, installed_packages_input).split('\n')
+    return self.filter_packages_lines_stdout(pkgs)
 
   def gen_source_install_input(self, source_dir, outdir):
     return R_INSTALL_PACKAGE_BOILERPLATE.format(
@@ -171,13 +237,17 @@ class RDistribution(object):
 
   def install_source_package(self, context, source_dir, pkg_cache_dir):
     source_input = self.gen_source_install_input(source_dir, pkg_cache_dir)
-    return self.invoke_rscript(context, source_input).split('\n')
+    pkgs = self.invoke_rscript(context, source_input).split('\n')
+    return self.filter_packages_lines_stdout(pkgs)
 
   def install_cran_package(self, cran, context, cran_dep, outdir):
     cran_input = cran.gen_cran_install_input(cran_dep, outdir)
-    return self.invoke_rscript(context, cran_input).split('\n')
+    pkgs = self.invoke_rscript(context, cran_input).split('\n')
+    return self.filter_packages_lines_stdout(pkgs)
 
   def install_github_package(self, github, context, github_dep, outdir):
-    github_input = github.gen_github_install_input(github_dep, outdir)
+    github_input = github.gen_github_install_input(
+      self.tools_cache_dir, github_dep, outdir)
     logger.debug("github_input: '{}'".format(github_input))
-    return self.invoke_rscript(context, github_input).split('\n')
+    pkgs = self.invoke_rscript(context, github_input).split('\n')
+    return self.filter_packages_lines_stdout(pkgs)

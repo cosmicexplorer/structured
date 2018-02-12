@@ -6,11 +6,20 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 from pants.subsystem.subsystem import Subsystem
 from pants.util.objects import datatype
 
+from structured.subsystems.r_distribution import RDependency, RDistribution
 from structured.util.boilerplate import R_INSTALL_PACKAGE_BOILERPLATE
 
 
-class CRANDependency(datatype('CRANDependency', ['name'])):
+class CRANDependency(datatype('CRANDependency', ['name', 'version']),
+                     RDependency):
   """???"""
+
+  def __new__(cls, name, version=None):
+    return super(CRANDependency, cls).__new__(
+      cls,
+      name=RDistribution.check_valid_package_name(name),
+      version=RDistribution.check_valid_version(version),
+    )
 
 
 class CRAN(Subsystem):
@@ -30,9 +39,8 @@ class CRAN(Subsystem):
 
   CRAN_INSTALL_BOILERPLATE = """
 options(repos=c({named_repos}))
-capture.output(
-  install.packages('{package_name}', lib='{outdir}'),
-  file=stderr())
+.libPaths('{outdir}')
+install.packages('{package_name}', lib='{outdir}')
 pkgs <- installed.packages(lib.loc='{outdir}')[,'Package']
 cat(pkgs, sep='\\n')
 """

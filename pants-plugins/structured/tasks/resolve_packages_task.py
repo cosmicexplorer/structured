@@ -7,6 +7,7 @@ from pants.base.exceptions import TaskError
 from pants.util.dirutil import safe_mkdir
 from pants.util.memo import memoized_property
 
+from structured.subsystems.r_distribution import WrappedDependency
 from structured.subsystems.cran import CRAN, CRANDependency
 from structured.subsystems.github import Github, GithubDependency
 from structured.tasks.r_task import RTask
@@ -33,6 +34,11 @@ class ResolvePackagesTask(RTask):
     return Github.scoped_instance(self)
 
   def resolve_dep(self, dep, outdir):
+    if isinstance(dep, WrappedDependency):
+      dep = dep.dep
+      force = dep.force
+    else:
+      force = False
     if isinstance(dep, CRANDependency):
       installed_pkgs = self.r_distribution.install_cran_package(
         self.cran, self.context, dep, outdir)
@@ -50,10 +56,17 @@ class ResolvePackagesTask(RTask):
       self.context, outdir)
     self.context.log.debug("cur_installed_packages: '{}'".format(cur_installed_packages))
     for dep in r_deps:
+      if isinstance(dep, WrappedDependency):
+        force = dep.force
+        dep = dep.dep
+      else:
+        force = False
       pkg_name = dep.name
-      if pkg_name in cur_installed_packages:
-        raise self.ResolveError("package '{}' is already installed in '{}'!"
-                           .format(pkg_name, outdir))
+      if pkg_name in cur_installed_packages and not force:
+        self.context.log.debug("continuing after '{}'".format(pkg_name))
+        continue
+        # raise self.ResolveError("package '{}' is already installed in '{}'!"
+        #                    .format(pkg_name, outdir))
       cur_installed_packages = self.resolve_dep(dep, outdir)
       self.context.log.debug("cur_installed_packages: '{}'".format(cur_installed_packages))
     return cur_installed_packages
