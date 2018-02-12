@@ -6,13 +6,16 @@ from __future__ import (absolute_import, division, generators, nested_scopes, pr
 import logging
 import os
 import re
+import subprocess
+import sys
+from contextlib import contextmanager
 
-from pants.base.exceptions import TaskError
 from pants.binaries.binary_util import BinaryUtil
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
 from pants.fs.archive import TGZ
 from pants.subsystem.subsystem import Subsystem
-from pants.util.contextutil import temporary_file_path
+from pants.util.contextutil import environment_as, temporary_file_path
+from pants.util.dirutil import safe_mkdir
 from pants.util.memo import memoized_method, memoized_property
 from pants.util.meta import AbstractClass
 from pants.util.objects import datatype
@@ -25,6 +28,52 @@ logger = logging.getLogger(__name__)
 
 class RDependency(AbstractClass):
   """???"""
+
+
+class RInvocationException(Exception):
+
+  INVOCATION_ERROR_BOILERPLATE = "`{cmd}` failed: {what_happened}"
+
+  def __init__(self, cmd, what_happened):
+    msg = self.INVOCATION_ERROR_BOILERPLATE.format(
+      cmd=' '.join(cmd),
+      what_happened=what_happened,
+    )
+    super(RInvocationException, self).__init__(msg)
+
+class RSpawnFailure(RInvocationException):
+
+  def __init__(self, cmd, err):
+    super(RSpawnFailure, self).__init__(cmd=cmd, what_happened=repr(err))
+
+class RProcessResultFailure(RInvocationException):
+
+  PROCESS_RESULT_FAILURE_BOILERPLATE = "exited non-zero ({exit_code}){rest}"
+
+  def __init__(self, cmd, exit_code, rest=''):
+    what_happened = self.PROCESS_RESULT_FAILURE_BOILERPLATE.format(
+      exit_code=exit_code,
+      rest=rest,
+    )
+    super(RProcessResultFailure, self).__init__(
+      cmd=cmd, what_happened=what_happened)
+
+class RProcessInvokedForOutputFailure(RProcessResultFailure):
+
+  INVOKE_OUTPUT_ERROR_BOILERPLATE = """
+stdout:
+{stdout}
+stderr:
+{stderr}
+"""
+
+  def __init__(self, cmd, exit_code, stdout, stderr):
+    rest = self.INVOKE_OUTPUT_ERROR_BOILERPLATE.format(
+      stdout=stdout,
+      stderr=stderr,
+    )
+    super(RProcessInvokedForOutputFailure, self).__init__(
+      cmd=cmd, exit_code=exit_code, rest=rest)
 
 
 class RDistribution(object):
@@ -64,11 +113,6 @@ class RDistribution(object):
                help='The parent directory for resolved R packages. '
                     'If unspecified, a standard path under the workdir is '
                     'used.')
-      register('--artifact-cache-dir', advanced=True, metavar='<dir>',
-               default=None,
-               help='The parent directory for build R artifacts. '
-                     'If unspecified, a standard path under the workdir is '
-                     'used.')
       register('--chroot-cache-dir', advanced=True, metavar='<dir>',
                default=None,
                help='The parent directory for the chroot cache. '
@@ -87,8 +131,6 @@ class RDistribution(object):
         self.scratch_dir, 'tools')
       resolver_cache_dir = options.resolver_cache_dir or os.path.join(
         self.scratch_dir, 'resolved_packages')
-      artifact_cache_dir = options.artifact_cache_dir or os.path.join(
-        self.scratch_dir, 'artifacts')
       chroot_cache_dir = options.chroot_cache_dir or os.path.join(
         self.scratch_dir, 'chroots')
       return RDistribution(
@@ -97,18 +139,16 @@ class RDistribution(object):
         modules_git_ref=options.modules_git_ref,
         tools_cache_dir=tools_cache_dir,
         resolver_cache_dir=resolver_cache_dir,
-        artifact_cache_dir=artifact_cache_dir,
         chroot_cache_dir=chroot_cache_dir,
       )
 
   def __init__(self, binary_util, r_version, modules_git_ref, tools_cache_dir,
-               resolver_cache_dir, artifact_cache_dir, chroot_cache_dir):
+               resolver_cache_dir, chroot_cache_dir):
     self._binary_util = binary_util
     self._r_version = r_version
     self.modules_git_ref = modules_git_ref
     self.tools_cache_dir = tools_cache_dir
     self.resolver_cache_dir = resolver_cache_dir
-    self.artifact_cache_dir = artifact_cache_dir
     self.chroot_cache_dir = chroot_cache_dir
 
   def _unpack_distribution(self, supportdir, r_version, output_filename):
@@ -130,35 +170,92 @@ class RDistribution(object):
   def r_bin_dir(self):
     return os.path.join(self.r_installation, 'bin')
 
-  def invoke_rscript(self, context, stdin_input):
-    logger.debug("stdin_input: '{}'".format(stdin_input))
-    with temporary_file_path(suffix='.Rscript') as tmp_file_path:
+  R_SAVE_IMAGE_BOILERPLATE = """{initial_input}
+
+save.image(file='{save_file_path}', safe=FALSE)
+"""
+
+  RDATA_FILE_NAME = '.Rdata'
+
+  def r_invoke_isolated_process(self, context, cmd):
+    logger.debug("isolated process '{}'".format(cmd))
+    env_path = ['PATH', self.r_bin_dir]
+    req = ExecuteProcessRequest(tuple(cmd), env_path)
+    res, = context._scheduler.product_request(
+      ExecuteProcessResult, [req])
+    if res.exit_code != 0:
+      raise RProcessInvokedForOutputFailure(
+        cmd, res.exit_code, res.stdout, res.stderr)
+    return res
+
+  @contextmanager
+  def r_isolated_invoke_with_input(self, context, stdin_input, suffix='.R'):
+    logger.debug("isolated invoke with stdin_input:\n{}".format(stdin_input))
+    with temporary_file_path(suffix=suffix) as tmp_file_path:
       with open(tmp_file_path, 'w') as tmpfile:
         tmpfile.write(stdin_input)
-      with open(tmp_file_path, 'r') as tmpfile:
-        logger.debug("tmpfile: '{}'".format(tmpfile.read()))
+      yield tmp_file_path
+
+  def r_invoke_repl_sandboxed(self, workunit, cmd, cwd):
+    new_path = ':'.join([
+      self.r_bin_dir,
+      os.environ.get('PATH'),
+    ])
+    with environment_as(PATH=new_path):
+      try:
+        subproc = subprocess.Popen(
+          cmd,
+          stdin=sys.stdin,
+          stdout=workunit.output('stdout'),
+          stderr=workunit.output('stderr'),
+          cwd=cwd,
+        )
+        return subproc.wait()
+      except OSError as e:
+        raise RSpawnFailure(cmd, e)
+      except subprocess.CalledProcessError as e:
+        raise RProcessResultFailure(cmd, e.returncode, e)
+
+  def invoke_r_interactive(self, context, workunit, initial_input, chroot_dir,
+                           clean_chroot=False):
+    logger.debug("interactive in '{}', initial_input: '{}'".format(
+      chroot_dir, initial_input))
+
+    rdata_path = os.path.join(chroot_dir, self.RDATA_FILE_NAME)
+
+    input_with_save = self.R_SAVE_IMAGE_BOILERPLATE.format(
+      initial_input=initial_input,
+      save_file_path=rdata_path,
+    )
+
+    safe_mkdir(chroot_dir, clean=clean_chroot)
+    with self.r_isolated_invoke_with_input(
+        context, input_with_save) as tmp_file_path:
+      save_cmd = [
+        'R',
+        '--vanilla',
+        '--slave',
+        '--file={}'.format(tmp_file_path)
+      ]
+      self.r_invoke_isolated_process(context, save_cmd)
+
+    r_cmd = [
+      'R',
+      '--save',
+      '--restore',
+      '--interactive',
+    ]
+    return self.r_invoke_repl_sandboxed(workunit, r_cmd, chroot_dir)
+
+  def invoke_rscript(self, context, stdin_input):
+    with self.r_isolated_invoke_with_input(
+        context, stdin_input) as tmp_file_path:
       r_cmd = [
         'Rscript',
         '--verbose',
         tmp_file_path,
       ]
-      env_path = ['PATH', '{}:{}'.format(
-        self.r_bin_dir,
-        os.environ.get('PATH'),
-      )]
-      req = ExecuteProcessRequest(tuple(r_cmd), env_path)
-      execute_process_result, = context._scheduler.product_request(
-        ExecuteProcessResult, [req])
-      exit_code = execute_process_result.exit_code
-      if exit_code != 0:
-        raise TaskError(
-          '{} ... exited non-zero ({}).\n-----stdout:\n{}\n-----\nstderr:\n'
-          .format(' '.join(r_cmd),
-                  exit_code,
-                  execute_process_result.stdout,
-                  execute_process_result.stderr),
-          exit_code=exit_code)
-      return execute_process_result.stdout
+      return self.r_invoke_isolated_process(context, r_cmd)
 
   class PackageInfoFormatError(Exception):
     """???"""
@@ -202,7 +299,7 @@ class RDistribution(object):
       expr="cat('listing installed packages...', sep='\\n')",
       outdir=pkg_cache_dir,
     )
-    pkgs = self.invoke_rscript(context, installed_packages_input).split('\n')
+    pkgs = self.invoke_rscript(context, installed_packages_input).stdout.split('\n')
     return self.filter_packages_lines_stdout(pkgs)
 
   def gen_source_install_input(self, source_dir, outdir):
@@ -214,17 +311,17 @@ class RDistribution(object):
 
   def install_source_package(self, context, source_dir, pkg_cache_dir):
     source_input = self.gen_source_install_input(source_dir, pkg_cache_dir)
-    pkgs = self.invoke_rscript(context, source_input).split('\n')
+    pkgs = self.invoke_rscript(context, source_input).stdout.split('\n')
     return self.filter_packages_lines_stdout(pkgs)
 
   def install_cran_package(self, cran, context, cran_dep, outdir):
     cran_input = cran.gen_cran_install_input(cran_dep, outdir)
-    pkgs = self.invoke_rscript(context, cran_input).split('\n')
+    pkgs = self.invoke_rscript(context, cran_input).stdout.split('\n')
     return self.filter_packages_lines_stdout(pkgs)
 
   def install_github_package(self, github, context, github_dep, outdir):
     github_input = github.gen_github_install_input(
       self.tools_cache_dir, github_dep, outdir)
     logger.debug("github_input: '{}'".format(github_input))
-    pkgs = self.invoke_rscript(context, github_input).split('\n')
+    pkgs = self.invoke_rscript(context, github_input).stdout.split('\n')
     return self.filter_packages_lines_stdout(pkgs)

@@ -17,7 +17,8 @@ class BootstrapError(TaskError): pass
 
 class BootstrapRTools(ResolvePackagesTask):
 
-  R_BOOTSTRAP_PRODUCT = 'r_bootstrap_tools_packages'
+  R_BOOTSTRAP_PKGS = 'r_bootstrap_tools_packages'
+  R_BOOTSTRAP_TOOLS_DIR = 'r_bootstrap_tools_dir'
 
   @memoized_property
   def modules_ref(self):
@@ -45,4 +46,6 @@ class BootstrapRTools(ResolvePackagesTask):
     installed_packages = self.resolve_dep_list(
       self.bootstrap_deps(), self.tools_dir)
     self.context.products.register_data(
-      self.R_BOOTSTRAP_PRODUCT, installed_packages)
+      self.R_BOOTSTRAP_PKGS, installed_packages)
+    self.context.products.register_data(
+      self.R_BOOTSTRAP_TOOLS_DIR, self.tools_dir)
