@@ -27,25 +27,9 @@ class RDependency(AbstractClass):
   """???"""
 
 
-class WrappedDependency(datatype('WrappedDependency', ['dep', 'force'])):
-  """???"""
-
-  def __new__(cls, dep, force):
-    if not isinstance(dep, RDependency):
-      raise BootstrapError(
-        "argument dep='{}' must be an instance of 'RDependency'"
-        .format(repr(dep)))
-    if not isinstance(force, bool):
-      raise BootstrapError(
-        "argument force='{}' must be a bool".format(repr(force)))
-    return super(WrappedDependency, cls).__new__(cls, dep, force)
-
-
 class RDistribution(object):
 
   DEVTOOLS_CRAN_NAME = 'devtools'
-  DEVTOOLS_GITHUB_ORG_NAME = 'hadley'
-  DEVTOOLS_GITHUB_REPO_NAME = 'devtools'
 
   MODULES_GITHUB_ORG_NAME = 'klmr'
   MODULES_GITHUB_REPO_NAME = 'modules'
@@ -67,10 +51,6 @@ class RDistribution(object):
                     'lookup the distribution with --binary-util-baseurls and '
                     '--pants-bootstrapdir.',
                default='3.4.3')
-      register('--devtools-git-ref', fingerprint=True,
-               help='git ref of the hadley/devtools repo to use for the '
-                    'devtools package for R development.',
-               default='ec2858b125e69ce95b415fdbb5d3c3e950f4ca9a')
       register('--modules-git-ref', fingerprint=True,
                help='git ref of the klmr/modules repo to use for R modules.',
                default='d4199f2d216c6d20c3b092c691d3099c3325f2a3')
@@ -114,7 +94,6 @@ class RDistribution(object):
       return RDistribution(
         binary_util,
         r_version=options.r_version,
-        devtools_git_ref=options.devtools_git_ref,
         modules_git_ref=options.modules_git_ref,
         tools_cache_dir=tools_cache_dir,
         resolver_cache_dir=resolver_cache_dir,
@@ -122,12 +101,10 @@ class RDistribution(object):
         chroot_cache_dir=chroot_cache_dir,
       )
 
-  def __init__(self, binary_util, r_version, devtools_git_ref, modules_git_ref,
-               tools_cache_dir, resolver_cache_dir, artifact_cache_dir,
-               chroot_cache_dir):
+  def __init__(self, binary_util, r_version, modules_git_ref, tools_cache_dir,
+               resolver_cache_dir, artifact_cache_dir, chroot_cache_dir):
     self._binary_util = binary_util
     self._r_version = r_version
-    self.devtools_git_ref = devtools_git_ref
     self.modules_git_ref = modules_git_ref
     self.tools_cache_dir = tools_cache_dir
     self.resolver_cache_dir = resolver_cache_dir

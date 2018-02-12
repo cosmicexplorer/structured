@@ -9,7 +9,7 @@ from pants.util.objects import datatype
 
 from structured.subsystems.cran import CRAN, CRANDependency
 from structured.subsystems.github import Github, GithubDependency
-from structured.subsystems.r_distribution import WrappedDependency, RDistribution
+from structured.subsystems.r_distribution import RDistribution
 from structured.tasks.resolve_packages_task import ResolvePackagesTask
 
 
@@ -20,23 +20,12 @@ class BootstrapRTools(ResolvePackagesTask):
   R_BOOTSTRAP_PRODUCT = 'r_bootstrap_tools_packages'
 
   @memoized_property
-  def devtools_ref(self):
-    return self.r_distribution.devtools_git_ref
-
-  @memoized_property
   def modules_ref(self):
     return self.r_distribution.modules_git_ref
 
   def bootstrap_deps(self):
     return [
       CRANDependency(name=RDistribution.DEVTOOLS_CRAN_NAME),
-      WrappedDependency(
-        GithubDependency(
-          org=RDistribution.DEVTOOLS_GITHUB_ORG_NAME,
-          name=RDistribution.DEVTOOLS_GITHUB_REPO_NAME,
-          ref=self.devtools_ref,
-        ),
-        force=True),
       GithubDependency(
         org=RDistribution.MODULES_GITHUB_ORG_NAME,
         name=RDistribution.MODULES_GITHUB_REPO_NAME,
