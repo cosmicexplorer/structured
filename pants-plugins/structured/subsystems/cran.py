@@ -7,7 +7,6 @@ from pants.subsystem.subsystem import Subsystem
 from pants.util.objects import datatype
 
 from structured.subsystems.r_distribution import RDependency, RDistribution
-from structured.util.boilerplate import R_INSTALL_PACKAGE_BOILERPLATE
 
 
 class CRANDependency(datatype('CRANDependency', ['name', 'version']),

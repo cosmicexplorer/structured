@@ -40,7 +40,10 @@ class BootstrapRTools(ResolvePackagesTask):
 
   @classmethod
   def product_types(cls):
-    return [cls.R_BOOTSTRAP_PRODUCT]
+    return [
+      cls.R_BOOTSTRAP_PKGS,
+      cls.R_BOOTSTRAP_TOOLS_DIR,
+    ]
 
   def execute(self):
     installed_packages = self.resolve_dep_list(

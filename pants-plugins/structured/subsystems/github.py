@@ -8,7 +8,6 @@ from pants.util.contextutil import temporary_dir
 from pants.util.objects import datatype
 
 from structured.subsystems.r_distribution import RDependency
-from structured.util.boilerplate import R_INSTALL_PACKAGE_BOILERPLATE
 
 
 class GithubDependency(datatype('GithubDependency', ['org', 'name', 'ref']),

@@ -20,8 +20,6 @@ from pants.util.memo import memoized_method, memoized_property
 from pants.util.meta import AbstractClass
 from pants.util.objects import datatype
 
-from structured.util.boilerplate import R_INSTALL_PACKAGE_BOILERPLATE
-
 
 logger = logging.getLogger(__name__)
 
@@ -294,20 +292,61 @@ save.image(file='{save_file_path}', safe=FALSE)
         .format(version, cls.VALID_VERSION_REGEX.pattern))
     return version
 
-  def get_installed_packages(self, context, pkg_cache_dir):
-    installed_packages_input = R_INSTALL_PACKAGE_BOILERPLATE.format(
-      expr="cat('listing installed packages...', sep='\\n')",
-      outdir=pkg_cache_dir,
+  @classmethod
+  def gen_script_load_stmts(cls, srcs_rel):
+    if len(srcs_rel) == 0:
+      return ''
+
+    source_stmts = ["source('{}')".format(s.encode('ascii')) for s in srcs_rel]
+    return '\n'.join(source_stmts) + '\n'
+
+  @classmethod
+  def create_valid_r_charvec_input(cls, elements, drop_empty=False):
+    if isinstance(elements, str):
+      elements = [elements]
+
+    if len(elements) == 0:
+      if drop_empty:
+        return None
+      return 'character(0)'
+    elif len(elements) == 1:
+      return "'{}'".format(elements[0])
+
+    quoted = ["'{}'".format(el) for el in elements]
+    return "c({})".format(', '.join(quoted))
+
+  @classmethod
+  def gen_libs_input(cls, lib_paths):
+    libs_charvec = cls.create_valid_r_charvec_input(lib_paths, drop_empty=True)
+    if libs_charvec is None:
+      return ''
+    return ".libPaths({})".format(libs_charvec) + '\n'
+
+  R_LIST_PACKAGES_BOILERPLATE = """{libs_input}
+installed.packages(lib.loc={libs_joined})
+"""
+
+  def get_installed_packages(self, context, lib_paths):
+    libs_input = self.gen_libs_input(lib_paths)
+    libs_charvec = self.create_valid_r_charvec_input(lib_paths, drop_empty=True)
+    if libs_charvec is None:
+      libs_charvec="NULL"
+
+    installed_packages_input = self.R_LIST_PACKAGES_BOILERPLATE.format(
+      libs_input=libs_input,
+      libs_joined=libs_charvec,
     )
     pkgs = self.invoke_rscript(context, installed_packages_input).stdout.split('\n')
     return self.filter_packages_lines_stdout(pkgs)
 
-  def gen_source_install_input(self, source_dir, outdir):
-    return R_INSTALL_PACKAGE_BOILERPLATE.format(
-      expr="devtools::install_local('{}', lib='{}')".format(
-        source_dir, outdir),
-      outdir=outdir,
-    )
+  # R_INSTALL_SOURCE_PACKAGE_BOILERPLATE = """???"""
+
+  # def gen_source_install_input(self, source_dir, outdir):
+  #   return self.R_INSTALL_SOURCE_PACKAGE_BOILERPLATE.format(
+  #     expr="devtools::install_local('{}', lib='{}')".format(
+  #       source_dir, outdir),
+  #     outdir=outdir,
+  #   )
 
   def install_source_package(self, context, source_dir, pkg_cache_dir):
     source_input = self.gen_source_install_input(source_dir, pkg_cache_dir)

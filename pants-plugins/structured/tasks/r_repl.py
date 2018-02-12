@@ -16,7 +16,7 @@ class RRepl(NewReplTaskMixin, RExecutionTask):
     return isinstance(target, RLibrary)
 
   def setup_repl_session(self, targets):
-    return self.gen_input_loading_targets(targets)
+    return self.gen_libs_sources_input(targets)
 
   def launch_repl_with_workunit(self, repl_init_input, workunit):
     return self.r_distribution.invoke_r_interactive(

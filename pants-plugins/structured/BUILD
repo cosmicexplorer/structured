@@ -1,7 +1,17 @@
 python_library(
-  dependencies=[
-    'pants-plugins/structured/subsystems',
-    'pants-plugins/structured/targets',
-    'pants-plugins/structured/tasks',
-  ],
+  sources=rglobs('*.py'),
+  provides=setup_py(
+    name='r-pants',
+    version=commons_version(),
+    description='R language pipeline, as a Pants plugin.',
+    url='https://github.com/cosmicexplorer/r-pants',
+    license='GPL-3.0+',
+    zip_safe=True,
+    classifiers=[
+      'Intended Audience :: Developers',
+      'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+      'Programming Language :: Python, R',
+      'Programming Language :: R',
+    ],
+  ),
 )
