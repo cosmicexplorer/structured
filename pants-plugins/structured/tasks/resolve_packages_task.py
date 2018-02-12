@@ -54,8 +54,14 @@ class ResolvePackagesTask(RTask):
       if pkg_name in cur_installed_packages:
         self.context.log.debug("continuing after '{}'".format(pkg_name))
         continue
+        # TODO: figure out what to do here!
         # raise self.ResolveError("package '{}' is already installed in '{}'!"
         #                    .format(pkg_name, outdir))
-      cur_installed_packages = self.resolve_dep(dep, outdir)
-      self.context.log.debug("cur_installed_packages: '{}'".format(cur_installed_packages))
+
+      self.resolve_dep(dep, outdir)
+      cur_installed_packages = self.r_distribution.get_installed_packages(
+        self.context, outdir)
+      self.context.log.debug(
+        "resolved dep '{}' in '{}'. cur_installed_packages: '{}'".format(
+          pkg_name, outdir, cur_installed_packages))
     return cur_installed_packages

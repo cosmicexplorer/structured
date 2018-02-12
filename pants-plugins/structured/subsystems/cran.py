@@ -47,7 +47,6 @@ cat(pkgs, sep='\\n')
   def gen_cran_install_input(self, cran_dep, outdir):
     package_name = cran_dep.name
     repos_dict = self.get_options().repos
-    print("repos_dict: '{}'".format(repr(repos_dict)))
     repos_named = [
       "'{}'='{}'".format(name, url) for name, url in repos_dict.iteritems()
     ]

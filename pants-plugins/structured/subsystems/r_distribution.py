@@ -10,6 +10,8 @@ import subprocess
 import sys
 from contextlib import contextmanager
 
+from abc import abstractproperty
+
 from pants.binaries.binary_util import BinaryUtil
 from pants.engine.isolated_process import ExecuteProcessRequest, ExecuteProcessResult
 from pants.fs.archive import TGZ
@@ -19,13 +21,16 @@ from pants.util.dirutil import safe_mkdir
 from pants.util.memo import memoized_method, memoized_property
 from pants.util.meta import AbstractClass
 from pants.util.objects import datatype
+from pants.util.strutil import ensure_binary
 
 
 logger = logging.getLogger(__name__)
 
 
 class RDependency(AbstractClass):
-  """???"""
+  @abstractproperty
+  def name(self):
+    """???"""
 
 
 class RInvocationException(Exception):
@@ -301,9 +306,15 @@ save.image(file='{save_file_path}', safe=FALSE)
     return '\n'.join(source_stmts) + '\n'
 
   @classmethod
+  def convert_to_list_of_ascii(cls, arg):
+    if not isinstance(arg, list):
+      arg = [ensure_binary(arg)]
+
+    return [ensure_binary(x) for x in arg]
+
+  @classmethod
   def create_valid_r_charvec_input(cls, elements, drop_empty=False):
-    if isinstance(elements, str):
-      elements = [elements]
+    elements = cls.convert_to_list_of_ascii(elements)
 
     if len(elements) == 0:
       if drop_empty:
@@ -323,7 +334,7 @@ save.image(file='{save_file_path}', safe=FALSE)
     return ".libPaths({})".format(libs_charvec) + '\n'
 
   R_LIST_PACKAGES_BOILERPLATE = """{libs_input}
-installed.packages(lib.loc={libs_joined})
+cat(installed.packages(lib.loc={libs_joined})[,'Package'], sep='\\n')
 """
 
   def get_installed_packages(self, context, lib_paths):
@@ -348,19 +359,16 @@ installed.packages(lib.loc={libs_joined})
   #     outdir=outdir,
   #   )
 
-  def install_source_package(self, context, source_dir, pkg_cache_dir):
-    source_input = self.gen_source_install_input(source_dir, pkg_cache_dir)
-    pkgs = self.invoke_rscript(context, source_input).stdout.split('\n')
-    return self.filter_packages_lines_stdout(pkgs)
+  # def install_source_package(self, context, source_dir, pkg_cache_dir):
+  #   source_input = self.gen_source_install_input(source_dir, pkg_cache_dir)
+  #   self.invoke_rscript(context, source_input).stdout.split('\n')
 
   def install_cran_package(self, cran, context, cran_dep, outdir):
     cran_input = cran.gen_cran_install_input(cran_dep, outdir)
-    pkgs = self.invoke_rscript(context, cran_input).stdout.split('\n')
-    return self.filter_packages_lines_stdout(pkgs)
+    self.invoke_rscript(context, cran_input)
 
   def install_github_package(self, github, context, github_dep, outdir):
     github_input = github.gen_github_install_input(
       self.tools_cache_dir, github_dep, outdir)
     logger.debug("github_input: '{}'".format(github_input))
-    pkgs = self.invoke_rscript(context, github_input).stdout.split('\n')
-    return self.filter_packages_lines_stdout(pkgs)
+    self.invoke_rscript(context, github_input).stdout.split('\n')

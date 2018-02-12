@@ -15,10 +15,10 @@ from structured.tasks.r_repl import RRepl
 
 def build_file_aliases():
     return BuildFileAliases(
-        targets={
-          'r_library': RLibrary,
-          # 'r_binary': RBinary,
-        }
+      targets={
+        'r_library': RLibrary,
+        # 'r_binary': RBinary,
+      },
     )
 
 def register_goals():
