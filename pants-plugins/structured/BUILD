@@ -1,16 +1,21 @@
 python_library(
-  sources=rglobs('*.py'),
+  dependencies=[
+    'pants-plugins/structured/3rdparty',
+    'pants-plugins/structured/subsystems',
+    'pants-plugins/structured/targets',
+    'pants-plugins/structured/tasks',
+  ],
   provides=setup_py(
     name='structured',
     version=commons_version(),
     description='R language pipeline, as a Pants plugin.',
     namespace_packages=['structured'],
     url='https://github.com/cosmicexplorer/structured',
-    license='GPL-3.0+',
+    license='Apache License, Version 2.0',
     zip_safe=True,
     classifiers=[
       'Intended Audience :: Developers',
-      'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+      'License :: OSI Approved :: Apache Software License',
       'Operating System :: MacOS :: MacOS X',
       'Operating System :: POSIX :: Linux',
       'Programming Language :: Python',
