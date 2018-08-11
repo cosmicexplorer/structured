@@ -10,8 +10,7 @@ from pants.util.objects import datatype
 from structured.subsystems.r_distribution import RDependency
 
 
-class GithubDependency(datatype('GithubDependency', ['org', 'name', 'ref']),
-                       RDependency):
+class GithubDependency(datatype(['org', 'name', 'ref']), RDependency):
   def repo_addr(self):
     return '{}/{}'.format(self.org, self.name)
 

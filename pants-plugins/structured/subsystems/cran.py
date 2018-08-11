@@ -9,8 +9,7 @@ from pants.util.objects import datatype
 from structured.subsystems.r_distribution import RDependency, RDistribution
 
 
-class CRANDependency(datatype('CRANDependency', ['name', 'version']),
-                     RDependency):
+class CRANDependency(datatype(['name', 'version']), RDependency):
   """???"""
 
   def __new__(cls, name, version=None):
